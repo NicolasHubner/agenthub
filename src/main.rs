@@ -1,3 +1,5 @@
+mod workspace;
+
 use axum::{routing::get, Router};
 
 #[tokio::main]
