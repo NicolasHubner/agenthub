@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { FileTree } from "./FileTree";
 import type { CanvasWidget, TerminalSession } from "./sessions";
 import { presetById } from "./sessions";
 
@@ -13,6 +15,8 @@ type Props = {
   onSelect: (id: string) => void;
   onAddWidget: (kind: CanvasWidget["kind"]) => void;
   onAddTerminal: () => void;
+  files: string[];
+  onOpenFile: (path: string) => void;
 };
 
 const WIDGET_TOOLS: { kind: CanvasWidget["kind"]; icon: string; label: string }[] = [
@@ -29,7 +33,10 @@ export function WorkspaceSidebar({
   onSelect,
   onAddWidget,
   onAddTerminal,
+  files,
+  onOpenFile,
 }: Props) {
+  const [filesOpen, setFilesOpen] = useState(false);
   const terminals = items.filter((i) => i.type === "terminal");
   const widgets = items.filter((i) => i.type === "widget");
 
@@ -116,6 +123,24 @@ export function WorkspaceSidebar({
 
       {items.length === 0 && (
         <p className="ws-empty">Add a note or agent from above</p>
+      )}
+
+      {files.length > 0 && (
+        <div className="ws-section ws-files-section">
+          <button
+            type="button"
+            className="ws-section-title ws-files-toggle"
+            onClick={() => setFilesOpen((o) => !o)}
+          >
+            <span>Files</span>
+            <span className="ws-files-chevron">{filesOpen ? "▾" : "▸"}</span>
+          </button>
+          {filesOpen && (
+            <div className="ws-file-tree">
+              <FileTree files={files} onSelect={onOpenFile} />
+            </div>
+          )}
+        </div>
       )}
     </aside>
   );

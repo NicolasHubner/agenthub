@@ -13,9 +13,9 @@ use crate::protocol::{AgentSnapshot, ClientMessage, ServerMessage};
 const LOG_CAP: usize = 1000;
 const BROADCAST_TO: &str = "*";
 
-/// Line injected into a canvas PTY. No `[` — zsh treats it as a glob pattern.
+/// Line injected into a canvas PTY as stdin. No ANSI codes — they corrupt readline state.
 pub fn pty_message_line(from: &str, content: &str) -> String {
-    format!("\r\n\x1b[36m⟵ agenthub · {from}\x1b[0m\r\n{content}\r\n")
+    format!("[{from}]: {content}\r\n")
 }
 
 pub type SharedHub = Arc<Hub>;

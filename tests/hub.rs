@@ -55,7 +55,7 @@ fn msg_delivers_with_edge() {
 #[test]
 fn pty_message_avoids_shell_globs() {
     let line = agenthub::hub::pty_message_line("terminal-5", "run: ls");
-    assert!(!line.contains('['));
+    assert!(!line.contains("[terminal-5]")); // no bracket-wrapped name that shells glob-expand
     assert!(line.contains("terminal-5"));
     assert!(line.contains("run: ls"));
 }

@@ -35,11 +35,25 @@ import { buildCanvasItems, WorkspaceSidebar } from "./WorkspaceSidebar";
 let nextId = 1;
 let nextWidgetId = 1;
 
-function makeNode(preset: AgentPreset, cwd: string, x: number, y: number): NodeModel {
+const AGENT_NAMES = [
+  "alpha", "bravo", "tango", "delta", "echo", "foxtrot", "golf", "hotel",
+  "juliet", "kilo", "lima", "mike", "oscar", "papa", "romeo", "sierra",
+  "victor", "whiskey", "zulu", "nova", "vega", "orion", "lyra", "atlas",
+  "phoenix", "cygnus", "hydra", "draco", "aquila", "corvus", "lupus",
+];
+
+function pickName(existing: string[]): string {
+  const used = new Set(existing);
+  const available = AGENT_NAMES.filter((n) => !used.has(n));
+  const pool = available.length > 0 ? available : AGENT_NAMES;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function makeNode(preset: AgentPreset, cwd: string, x: number, y: number, existingNames: string[]): NodeModel {
   const n = nextId++;
   return {
     id: `node-${n}`,
-    name: `terminal-${n}`,
+    name: pickName(existingNames),
     command: preset.command,
     preset: preset.id,
     cwd,
@@ -72,7 +86,12 @@ function allRects(nodes: NodeModel[], widgets: WidgetModel[]): Rect[] {
   ];
 }
 
-export function AgentCanvas() {
+interface AgentCanvasProps {
+  files: string[];
+  onOpenFile: (path: string) => void;
+}
+
+export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
   const hubRef = useRef<HubConnection | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [nodes, setNodes] = useState<NodeModel[]>([]);
@@ -197,7 +216,7 @@ export function AgentCanvas() {
   function addTerminal(preset: AgentPreset) {
     setNodes((ns) => {
       const { x, y } = nextCanvasPosition(allRects(ns, widgets), DEFAULT_TERM_WIDTH, DEFAULT_TERM_HEIGHT);
-      const node = makeNode(preset, cwd, x, y);
+      const node = makeNode(preset, cwd, x, y, ns.map((n) => n.name));
       setSelectedId(node.id);
       return [...ns, node];
     });
@@ -442,6 +461,8 @@ export function AgentCanvas() {
           onSelect={focusItem}
           onAddWidget={(kind) => addWidget(kind)}
           onAddTerminal={() => addTerminal(presetById("bash"))}
+          files={files}
+          onOpenFile={onOpenFile}
         />
 
         <div className="maestri-canvas-wrap">

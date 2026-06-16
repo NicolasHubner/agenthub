@@ -235,7 +235,8 @@ body {
 }
 .node-header:active { cursor: grabbing; }
 .node-icon { font-size: 16px; line-height: 1; }
-.node-title { font-weight: 600; font-size: 13px; color: #111827; }
+.node-title { font-weight: 600; font-size: 13px; color: #111827; display: flex; align-items: center; gap: 6px; }
+.node-agent-name { font-weight: 700; font-size: 12px; color: #6366f1; letter-spacing: .03em; text-transform: lowercase; }
 .node-badge {
   font-size: 10px; font-weight: 600; color: #fff;
   padding: 2px 8px; border-radius: 999px; letter-spacing: .02em;
@@ -293,35 +294,65 @@ body {
 }
 .zoom-bar button:hover { background: #f3f4f6; }
 
-/* ── Files (secondary) ── */
-.files-fab {
-  position: fixed; right: 20px; top: 20px; z-index: 20;
-  width: 40px; height: 40px; border-radius: 10px;
-  border: 1px solid #d1d5db; background: #fff; cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0,0,0,.1); font-size: 18px;
+/* ── File drawer (right-side overlay) ── */
+.file-drawer {
+  position: fixed; right: 0; top: 0; bottom: 0; z-index: 30;
+  width: min(520px, 46vw);
+  display: flex; flex-direction: column;
+  background: #1e1e2e;
+  border-left: 1px solid #3b3b52;
+  box-shadow: -8px 0 32px rgba(0,0,0,.28);
 }
-.files-bar {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 16px; border-bottom: 1px solid #ddd; background: #fafafa;
+.file-drawer-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  background: #2a2a3d; border-bottom: 1px solid #3b3b52;
+  flex-shrink: 0;
 }
-.files-bar h1 { margin: 0; font-size: 16px; }
-.files-bar button {
-  padding: 6px 10px; border: 1px solid #ccc; border-radius: 6px;
-  background: #fff; cursor: pointer; font: inherit;
+.file-drawer-path {
+  flex: 1; min-width: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+  color: #a8afc4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.body { display: flex; flex: 1; min-height: 0; }
-.sidebar {
-  width: 300px; min-width: 300px; overflow: auto;
-  border-right: 1px solid #ddd; padding: 12px; background: #fafafa;
+.file-drawer-close {
+  background: none; border: none; color: #6b7280; cursor: pointer;
+  font-size: 16px; line-height: 1; padding: 2px 4px; border-radius: 4px;
+  flex-shrink: 0;
 }
-.content.files-pane { flex: 1; padding: 24px; overflow: auto; }
+.file-drawer-close:hover { background: #3b3b52; color: #e5e7eb; }
+.file-drawer-body {
+  flex: 1; min-height: 0; overflow: auto;
+  padding: 0;
+}
+.file-drawer-body .viewer.markdown { padding: 20px 24px; color: #cdd6f4; }
+.file-drawer-body .viewer.text { padding: 16px; }
+.file-drawer-body .viewer.empty { padding: 16px; color: #6b7280; }
+.file-drawer-body .viewer.code > div { border-radius: 0 !important; }
+.file-drawer-body pre { background: transparent !important; margin: 0 !important; }
+
+/* ── Files section in sidebar ── */
+.ws-files-section { border-top: 1px solid #e5e7eb; padding-top: 8px; }
+.ws-files-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; background: none; border: none; cursor: pointer;
+  font: inherit; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .05em; color: #9ca3af; padding: 0 6px 6px;
+}
+.ws-files-toggle:hover { color: #6b7280; }
+.ws-files-chevron { font-size: 10px; }
+.ws-file-tree { overflow-y: auto; max-height: 280px; padding: 0 4px; }
+
+/* ── File tree (shared) ── */
 .tree, .tree ul { list-style: none; margin: 0; padding-left: 12px; }
-.tree .dir { font-weight: 600; color: #444; }
+.tree .dir { font-weight: 600; color: #374151; font-size: 12px; padding: 2px 4px; }
 .tree .file {
   background: none; border: none; cursor: pointer; padding: 2px 4px;
-  color: #0366d6; font: inherit; text-align: left;
+  color: #2563eb; font: inherit; font-size: 12px; text-align: left;
+  border-radius: 4px; width: 100%;
 }
-.tree .file:hover { text-decoration: underline; }
+.tree .file:hover { background: #dbeafe; text-decoration: none; }
+
+/* ── Legacy (keep viewer/error for old routes) ── */
 .viewer.empty { color: #888; }
 .viewer pre { white-space: pre-wrap; }
 .error { color: #c00; }

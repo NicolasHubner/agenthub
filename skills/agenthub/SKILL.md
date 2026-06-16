@@ -32,12 +32,13 @@ agenthub-cli ask terminal-2 "Review src/main.rs and suggest fixes"
 
 1. Confirm link exists: `agenthub-cli peers`
 2. Send explicit prompt: `agenthub-cli ask <peer> "<task>"`
-3. Peer sees in its terminal:
-   ```
-   ⟶ agenthub · terminal-1
-   <task>
-   ```
+3. Peer sees message injected into its terminal as: `[from-name]: <task>`
 4. Do **not** paste the other agent's live stdout — use `ask` only when the user requests coordination
+
+## Style
+
+- After sending, do not narrate "Message sent, X will do Y." — just confirm sent or be silent.
+- No announcements before using the skill. Just run the commands.
 
 ## Install skill (Claude Code)
 

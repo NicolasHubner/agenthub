@@ -157,7 +157,10 @@ export function TerminalNode({
         <span className="node-icon" style={{ color: preset.color }}>
           {preset.icon}
         </span>
-        <span className="node-title">{preset.label}</span>
+        <span className="node-title">
+          {preset.label}
+          <span className="node-agent-name">{node.name}</span>
+        </span>
         <span className="node-badge" style={{ background: preset.color }}>
           {preset.badge}
         </span>
