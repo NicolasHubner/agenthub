@@ -4,13 +4,15 @@ use axum::{
     extract::{Query, State, WebSocketUpgrade},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::hub::{Hub, SharedHub};
+use crate::pty::handle_pty_socket;
+use crate::sessions::{SessionSnapshot, SessionStore};
 use crate::workspace::{Workspace, WorkspaceError};
 
 pub type SharedWorkspace = Arc<Workspace>;
@@ -19,6 +21,7 @@ pub type SharedWorkspace = Arc<Workspace>;
 pub struct AppState {
     pub workspace: SharedWorkspace,
     pub hub: SharedHub,
+    pub sessions: Arc<SessionStore>,
 }
 
 struct ApiError(StatusCode, &'static str);
@@ -48,6 +51,28 @@ async fn get_state(State(state): State<AppState>) -> Json<serde_json::Value> {
     Json(serde_json::to_value(snap).expect("state serializes"))
 }
 
+async fn get_sessions(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let snap = state.sessions.get();
+    Json(json!({
+        "workspace": state.workspace.root_display(),
+        "terminals": snap.terminals,
+        "widgets": snap.widgets,
+        "edges": snap.edges,
+        "view": snap.view,
+    }))
+}
+
+async fn put_sessions(
+    State(state): State<AppState>,
+    Json(body): Json<SessionSnapshot>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .sessions
+        .save(body)
+        .map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "io error"))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn get_files(State(state): State<AppState>) -> Response {
     Json(json!({ "files": state.workspace.list_files() })).into_response()
 }
@@ -73,18 +98,52 @@ async fn ws_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl
     })
 }
 
-/// Full API router (files + hub). Used by main and tests.
-pub fn app_router(workspace: SharedWorkspace, hub: SharedHub) -> Router {
-    let state = AppState { workspace, hub };
+async fn post_msg(
+    State(state): State<AppState>,
+    Json(body): Json<MsgBody>,
+) -> Response {
+    match state.hub.route_msg(&body.from, &body.to, &body.content) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(err) => (StatusCode::BAD_REQUEST, Json(err)).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct MsgBody {
+    from: String,
+    to: String,
+    content: String,
+}
+
+async fn pty_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| {
+        let hub = state.hub.clone();
+        let workspace = state.workspace.clone();
+        async move {
+            handle_pty_socket(hub, workspace, socket).await;
+        }
+    })
+}
+
+pub fn app_router(workspace: SharedWorkspace, hub: SharedHub, sessions: Arc<SessionStore>) -> Router {
+    let state = AppState {
+        workspace,
+        hub,
+        sessions,
+    };
     Router::new()
         .route("/state", get(get_state))
+        .route("/msg", post(post_msg))
+        .route("/sessions", get(get_sessions).put(put_sessions))
         .route("/files", get(get_files))
         .route("/file", get(get_file))
         .route("/ws", get(ws_upgrade))
+        .route("/ws/pty", get(pty_upgrade))
         .with_state(state)
 }
 
-/// Back-compat helper for file-only tests.
 pub fn api_router(ws: SharedWorkspace) -> Router {
-    app_router(ws, Arc::new(Hub::new()))
+    let root = ws.root_display();
+    let sessions = Arc::new(SessionStore::new(std::path::Path::new(&root)));
+    app_router(ws, Arc::new(Hub::new()), sessions)
 }

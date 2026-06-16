@@ -5,18 +5,25 @@ use axum::extract::ws::{Message, WebSocket};
 use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
 use serde_json;
-use tokio::sync::{broadcast, Mutex, RwLock};
+use parking_lot::RwLock;
+use tokio::sync::{broadcast, Mutex};
 
 use crate::protocol::{AgentSnapshot, ClientMessage, ServerMessage};
 
 const LOG_CAP: usize = 1000;
 const BROADCAST_TO: &str = "*";
 
+/// Line injected into a canvas PTY. No `[` — zsh treats it as a glob pattern.
+pub fn pty_message_line(from: &str, content: &str) -> String {
+    format!("\r\n\x1b[36m⟵ agenthub · {from}\x1b[0m\r\n{content}\r\n")
+}
+
 pub type SharedHub = Arc<Hub>;
 
 struct AgentEntry {
     tags: Vec<String>,
-    tx: tokio::sync::mpsc::UnboundedSender<String>,
+    ws_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
+    pty_in: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
 }
 
 #[derive(Clone)]
@@ -54,7 +61,7 @@ impl Hub {
             .collect();
         let edges: Vec<[String; 2]> = self
             .edges
-            .blocking_read()
+            .read()
             .iter()
             .map(|(a, b)| [a.clone(), b.clone()])
             .collect();
@@ -96,30 +103,39 @@ impl Hub {
 
     fn has_edge(&self, a: &str, b: &str) -> bool {
         let edge = Self::normalize_edge(a, b);
-        self.edges.blocking_read().contains(&edge)
+        self.edges.read().contains(&edge)
     }
 
     pub fn register(
         &self,
         name: String,
         tags: Vec<String>,
-        tx: tokio::sync::mpsc::UnboundedSender<String>,
+        ws_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
+        pty_in: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
     ) -> Result<(), ServerMessage> {
         if self.agents.contains_key(&name) {
-            return Err(ServerMessage::Error {
-                reason: "name already registered".into(),
-                to: None,
-            });
+            self.unregister(&name);
         }
-        self.agents.insert(name, AgentEntry { tags, tx });
+        self.agents.insert(
+            name,
+            AgentEntry {
+                tags,
+                ws_tx,
+                pty_in,
+            },
+        );
         let state = self.state();
         self.broadcast(&state);
         Ok(())
     }
 
+    pub fn agents_contains(&self, name: &str) -> bool {
+        self.agents.contains_key(name)
+    }
+
     pub fn unregister(&self, name: &str) {
         self.agents.remove(name);
-        let mut edges = self.edges.blocking_write();
+        let mut edges = self.edges.write();
         edges.retain(|(a, b)| a != name && b != name);
         drop(edges);
         self.broadcast(&self.state());
@@ -139,7 +155,7 @@ impl Hub {
             });
         }
         self.edges
-            .blocking_write()
+            .write()
             .insert(Self::normalize_edge(a, b));
         self.broadcast(&self.state());
         Ok(())
@@ -147,7 +163,7 @@ impl Hub {
 
     pub fn disconnect(&self, a: &str, b: &str) {
         self.edges
-            .blocking_write()
+            .write()
             .remove(&Self::normalize_edge(a, b));
         self.broadcast(&self.state());
     }
@@ -179,11 +195,11 @@ impl Hub {
         if broadcast {
             for entry in self.agents.iter() {
                 if entry.key() != from {
-                    self.send_json(&entry.value().tx, &delivery);
+                    self.deliver(&entry.value(), &delivery);
                 }
             }
         } else if let Some(entry) = self.agents.get(to) {
-            self.send_json(&entry.tx, &delivery);
+            self.deliver(&entry, &delivery);
         } else {
             return Err(ServerMessage::Error {
                 reason: "agent offline".into(),
@@ -192,6 +208,16 @@ impl Hub {
         }
 
         Ok(())
+    }
+
+    fn deliver(&self, entry: &AgentEntry, msg: &ServerMessage) {
+        if let Some(ws_tx) = &entry.ws_tx {
+            self.send_json(ws_tx, msg);
+        }
+        if let (Some(pty_in), ServerMessage::Msg { from, content, .. }) = (&entry.pty_in, msg) {
+            let line = pty_message_line(from, content);
+            let _ = pty_in.send(line.into_bytes());
+        }
     }
 
     pub async fn handle_socket(self: Arc<Self>, socket: WebSocket) {
@@ -236,7 +262,7 @@ impl Hub {
                     });
                 }
                 Ok(ClientMessage::Register { name, tags }) => {
-                    if let Err(err) = self.register(name.clone(), tags, out_tx.clone()) {
+                    if let Err(err) = self.register(name.clone(), tags, Some(out_tx.clone()), None) {
                         self.send_json(&out_tx, &err);
                         return;
                     }

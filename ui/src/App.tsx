@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { getFiles, getFile, type FileContent } from "./api";
-import { AgentPanel } from "./AgentPanel";
+import { AgentCanvas } from "./AgentCanvas";
 import { FileTree } from "./FileTree";
 import { Viewer } from "./Viewer";
 
-type Tab = "agents" | "files";
+type Tab = "canvas" | "files";
 
 export function App() {
-  const [tab, setTab] = useState<Tab>("agents");
+  const [tab, setTab] = useState<Tab>("canvas");
   const [files, setFiles] = useState<string[]>([]);
   const [selected, setSelected] = useState<FileContent | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,42 +27,32 @@ export function App() {
 
   return (
     <div className="layout">
-      <header className="topbar">
-        <h1>AgentHub</h1>
-        <nav>
-          <button
-            type="button"
-            className={tab === "agents" ? "active" : ""}
-            onClick={() => setTab("agents")}
-          >
-            Agents
-          </button>
-          <button
-            type="button"
-            className={tab === "files" ? "active" : ""}
-            onClick={() => setTab("files")}
-          >
-            Files
-          </button>
-        </nav>
-      </header>
-      <div className="body">
-        {tab === "agents" ? (
-          <main className="content full">
-            <AgentPanel />
-          </main>
-        ) : (
-          <>
+      {tab === "canvas" ? (
+        <AgentCanvas />
+      ) : (
+        <>
+          <header className="files-bar">
+            <button type="button" onClick={() => setTab("canvas")}>
+              ← Canvas
+            </button>
+            <h1>Files</h1>
+          </header>
+          <div className="body">
             <aside className="sidebar">
               {error && <p className="error">{error}</p>}
               <FileTree files={files} onSelect={open} />
             </aside>
-            <main className="content">
+            <main className="content files-pane">
               <Viewer file={selected} />
             </main>
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
+      {tab === "canvas" && (
+        <button type="button" className="files-fab" onClick={() => setTab("files")} title="Files">
+          📄
+        </button>
+      )}
     </div>
   );
 }

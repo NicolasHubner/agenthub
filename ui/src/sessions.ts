@@ -1,0 +1,83 @@
+export type TerminalSession = {
+  id: string;
+  name: string;
+  command: string;
+  cwd: string;
+  preset: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type WidgetKind = "notepad" | "text" | "sticky";
+
+export type CanvasWidget = {
+  id: string;
+  kind: WidgetKind;
+  title: string;
+  content: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type CanvasView = { x: number; y: number; zoom: number };
+
+export type SessionSnapshot = {
+  terminals: TerminalSession[];
+  widgets?: CanvasWidget[];
+  edges: [string, string][];
+  view?: CanvasView;
+};
+
+export const WIDGET_DEFAULTS: Record<WidgetKind, { width: number; height: number; title: string }> = {
+  notepad: { width: 320, height: 260, title: "Notepad" },
+  text: { width: 300, height: 100, title: "Text" },
+  sticky: { width: 220, height: 200, title: "Sticky" },
+};
+
+export type SessionsResponse = SessionSnapshot & {
+  workspace: string;
+};
+
+export async function fetchSessions(): Promise<SessionsResponse> {
+  const r = await fetch("/sessions");
+  if (!r.ok) throw new Error(`sessions ${r.status}`);
+  return r.json();
+}
+
+export async function saveSessions(snap: SessionSnapshot): Promise<void> {
+  const r = await fetch("/sessions", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(snap),
+  });
+  if (!r.ok) throw new Error(`save sessions ${r.status}`);
+}
+
+export type AgentPreset = {
+  id: string;
+  label: string;
+  command: string;
+  badge: string;
+  color: string;
+  icon: string;
+};
+
+export const AGENT_PRESETS: AgentPreset[] = [
+  { id: "claude", label: "Claude", command: "claude", badge: "Code", color: "#c15f3c", icon: "✳" },
+  { id: "codex", label: "Codex", command: "codex", badge: "Codex", color: "#7c5cff", icon: "◉" },
+  { id: "cursor", label: "Cursor", command: "cursor-agent", badge: "Agent", color: "#3b82f6", icon: "⌁" },
+  { id: "gemini", label: "Gemini", command: "gemini", badge: "CLI", color: "#0d9488", icon: "◇" },
+  { id: "bash", label: "Shell", command: "bash", badge: "Shell", color: "#64748b", icon: "▸" },
+];
+
+export function presetById(id: string): AgentPreset {
+  return AGENT_PRESETS.find((p) => p.id === id) ?? AGENT_PRESETS[4];
+}
+
+export const DEFAULT_TERM_WIDTH = 420;
+export const DEFAULT_TERM_HEIGHT = 280;
+export const DEFAULT_VIEW: CanvasView = { x: 48, y: 48, zoom: 1 };
