@@ -1,0 +1,19 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; }
+.layout { display: flex; height: 100vh; }
+.sidebar {
+  width: 300px; min-width: 300px; overflow: auto;
+  border-right: 1px solid #ddd; padding: 12px; background: #fafafa;
+}
+.sidebar h1 { font-size: 16px; margin: 0 0 12px; }
+.content { flex: 1; overflow: auto; padding: 24px; }
+.tree, .tree ul { list-style: none; margin: 0; padding-left: 12px; }
+.tree .dir { font-weight: 600; color: #444; }
+.tree .file {
+  background: none; border: none; cursor: pointer; padding: 2px 4px;
+  color: #0366d6; font: inherit; text-align: left;
+}
+.tree .file:hover { text-decoration: underline; }
+.viewer.empty { color: #888; }
+.viewer pre { white-space: pre-wrap; }
+.error { color: #c00; }
