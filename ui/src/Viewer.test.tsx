@@ -11,10 +11,12 @@ describe("Viewer", () => {
   });
 
   it("renders code content verbatim", () => {
-    render(
+    const { container } = render(
       <Viewer file={{ path: "m.rs", content: "fn main() {}", kind: "code", ext: "rs" }} />,
     );
-    expect(screen.getByText(/fn main/)).toBeInTheDocument();
+    // Prism tokenizes recognized languages into multiple spans, so assert on the
+    // combined textContent rather than a single text node.
+    expect(container.textContent).toContain("fn main() {}");
   });
 
   it("shows a placeholder when no file is selected", () => {
