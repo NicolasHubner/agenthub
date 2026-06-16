@@ -87,8 +87,6 @@ impl Workspace {
         })
     }
 
-    /// Resolve a caller-supplied relative path against the root, rejecting
-    /// anything that escapes the root (`..`, symlink, absolute path).
     pub fn resolve(&self, rel: &str) -> Result<PathBuf, WorkspaceError> {
         // Reject absolute inputs outright; everything must be relative to root.
         if Path::new(rel).is_absolute() {
@@ -104,6 +102,36 @@ impl Workspace {
             return Err(WorkspaceError::Forbidden);
         }
         Ok(canonical)
+    }
+
+    /// Resolve a workspace directory (absolute or relative). Empty → workspace root.
+    pub fn resolve_dir(&self, path: &str) -> Result<PathBuf, WorkspaceError> {
+        if path.is_empty() {
+            return Ok(self.root.clone());
+        }
+        let candidate = if Path::new(path).is_absolute() {
+            PathBuf::from(path)
+        } else {
+            self.root.join(path)
+        };
+        let canonical = candidate
+            .canonicalize()
+            .map_err(|_| WorkspaceError::NotFound)?;
+        if !canonical.is_dir() {
+            return Err(WorkspaceError::NotFound);
+        }
+        if !canonical.starts_with(&self.root) {
+            return Err(WorkspaceError::Forbidden);
+        }
+        Ok(canonical)
+    }
+
+    pub fn root_display(&self) -> String {
+        self.root.display().to_string()
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 }
 

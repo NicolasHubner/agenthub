@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use agenthub::hub::Hub;
 use agenthub::routes::app_router;
+use agenthub::sessions::SessionStore;
 use agenthub::workspace::Workspace;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -16,16 +17,17 @@ async fn main() {
 
     let ws = Arc::new(Workspace::new(&workspace_root).expect("workspace root must exist"));
     let hub = Arc::new(Hub::new());
+    let sessions = Arc::new(SessionStore::new(ws.root()));
 
     let index = format!("{ui_dir}/index.html");
     let static_service = ServeDir::new(&ui_dir).fallback(ServeFile::new(index));
 
-    let app = app_router(ws, hub).fallback_service(static_service);
+    let app = app_router(ws.clone(), hub, sessions).fallback_service(static_service);
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
         .expect("bind");
     println!("agenthub: http://127.0.0.1:{port}  ws://127.0.0.1:{port}/ws");
-    println!("agenthub: workspace {workspace_root}");
+    println!("agenthub: workspace {}", ws.root_display());
     axum::serve(listener, app).await.expect("serve");
 }
