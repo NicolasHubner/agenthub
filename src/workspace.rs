@@ -1,4 +1,24 @@
 use std::path::{Path, PathBuf};
+use serde::Serialize;
+
+const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024; // 2 MiB
+
+#[derive(Debug, Serialize)]
+pub struct FileContent {
+    pub path: String,
+    pub content: String,
+    pub kind: String,
+    pub ext: String,
+}
+
+fn kind_for(ext: &str) -> &'static str {
+    match ext {
+        "md" | "markdown" => "markdown",
+        "rs" | "ts" | "tsx" | "js" | "jsx" | "json" | "toml" | "yaml" | "yml" | "py" | "sh"
+        | "css" | "html" | "go" | "c" | "cpp" | "h" => "code",
+        _ => "text",
+    }
+}
 
 #[derive(Debug)]
 pub enum WorkspaceError {
@@ -42,6 +62,31 @@ impl Workspace {
         out
     }
 
+    /// Read a workspace file as UTF-8 text, guarding size and binary content.
+    pub fn read_file(&self, rel: &str) -> Result<FileContent, WorkspaceError> {
+        let abs = self.resolve(rel)?;
+        let meta = std::fs::metadata(&abs).map_err(WorkspaceError::Io)?;
+        if !meta.is_file() {
+            return Err(WorkspaceError::NotFound);
+        }
+        if meta.len() > MAX_FILE_BYTES {
+            return Err(WorkspaceError::TooLarge);
+        }
+        let bytes = std::fs::read(&abs).map_err(WorkspaceError::Io)?;
+        let content = String::from_utf8(bytes).map_err(|_| WorkspaceError::NotText)?;
+        let ext = abs
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        Ok(FileContent {
+            path: rel.to_string(),
+            kind: kind_for(&ext).to_string(),
+            ext,
+            content,
+        })
+    }
+
     /// Resolve a caller-supplied relative path against the root, rejecting
     /// anything that escapes the root (`..`, symlink, absolute path).
     pub fn resolve(&self, rel: &str) -> Result<PathBuf, WorkspaceError> {
@@ -68,9 +113,12 @@ mod tests {
     use std::fs;
 
     fn temp_root() -> PathBuf {
-        // Unique dir under the system temp folder. No external crate needed.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static CTR: AtomicU64 = AtomicU64::new(0);
+        // Unique dir per call so parallel tests don't share state.
+        let id = CTR.fetch_add(1, Ordering::Relaxed);
         let base = std::env::temp_dir().join("agenthub-test");
-        let dir = base.join(format!("ws-{}", std::process::id()));
+        let dir = base.join(format!("ws-{}-{}", std::process::id(), id));
         fs::create_dir_all(dir.join("docs")).unwrap();
         fs::write(dir.join("docs/a.md"), "# hello").unwrap();
         dir
@@ -118,5 +166,31 @@ mod tests {
         let mut sorted = files.clone();
         sorted.sort();
         assert_eq!(files, sorted);
+    }
+
+    #[test]
+    fn reads_markdown_file() {
+        let ws = Workspace::new(temp_root()).unwrap();
+        let f = ws.read_file("docs/a.md").unwrap();
+        assert_eq!(f.content, "# hello");
+        assert_eq!(f.kind, "markdown");
+        assert_eq!(f.ext, "md");
+    }
+
+    #[test]
+    fn rejects_too_large_file() {
+        let root = temp_root();
+        let big = vec![b'a'; 3 * 1024 * 1024]; // 3 MiB > 2 MiB cap
+        fs::write(root.join("big.txt"), &big).unwrap();
+        let ws = Workspace::new(&root).unwrap();
+        assert!(matches!(ws.read_file("big.txt"), Err(WorkspaceError::TooLarge)));
+    }
+
+    #[test]
+    fn rejects_binary_file() {
+        let root = temp_root();
+        fs::write(root.join("bin.dat"), [0u8, 159, 146, 150]).unwrap(); // invalid UTF-8
+        let ws = Workspace::new(&root).unwrap();
+        assert!(matches!(ws.read_file("bin.dat"), Err(WorkspaceError::NotText)));
     }
 }
