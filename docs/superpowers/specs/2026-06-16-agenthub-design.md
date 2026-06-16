@@ -13,6 +13,7 @@ Hub local (mesma máquina) que:
 - Cada agent roda **independente**, em seu próprio processo.
 - Agent conecta ao hub quando quiser; desconecta quando quiser.
 - UI web (browser, localhost) mostra agents conectados como **nós** num grafo; usuário liga dois nós para abrir canal de mensagens entre eles.
+- **Viewer de arquivos integrado** na mesma UI: painel com árvore de arquivos clicável + pane que renderiza markdown e código (syntax highlight). Resolve "não consigo ver docs no tmux" sem ferramenta externa. Uma solução só, open source.
 - Rápido e leve (Rust).
 
 ## Não-objetivos (YAGNI)
@@ -22,6 +23,8 @@ Hub local (mesma máquina) que:
 - Sem persistência durável (event log em memória; histórico some ao reiniciar o hub).
 - Sem orquestração automática / DAG de workflow. Conexão é manual, feita pelo usuário.
 - Sem suporte a agents que não falem o protocolo (cada tipo precisa de um adapter).
+- Viewer é **read-only** no MVP. Editar arquivos no browser fica para depois.
+- Viewer enxerga só a pasta-raiz do projeto (workspace). Sem navegar o filesystem inteiro.
 
 ## Arquitetura
 
@@ -32,7 +35,9 @@ Processo único em Rust = **AgentHub**.
 │                 AgentHub (Rust)              │
 │                                              │
 │  HTTP :3000 ──► serve Web UI (React build)   │
-│            └──► REST: GET /state             │
+│            ├──► REST: GET /state             │
+│            ├──► REST: GET /files (árvore)    │
+│            └──► REST: GET /file?path= (conteúdo)│
 │                                              │
 │  WebSocket :3001 ──► canal dos agents        │
 │                      e do browser (UI)       │
@@ -60,6 +65,8 @@ Processo único em Rust = **AgentHub**.
 **Event log** — ring buffer em memória (ex.: últimas N=1000 mensagens). Alimenta a UI quando o browser abre (mostra histórico recente) e serve `GET /state`.
 
 **Edges (conexões)** — o hub guarda o conjunto de pares conectados (`HashSet<(AgentId, AgentId)>`). Uma `msg` de A para B só é entregue se existir edge A–B **ou** se for `broadcast`. Editar edges = criar/remover conexão pela UI. É isso que dá o "conecto quando quiser".
+
+**File service** — serve a árvore e o conteúdo de arquivos da pasta-raiz do workspace (read-only). `GET /files` → árvore de paths. `GET /file?path=` → conteúdo bruto. A UI renderiza markdown/código. Caminho é resolvido e validado contra a raiz canônica do workspace; qualquer path que escape a raiz (`..`, symlink, path absoluto) é rejeitado com 403. Sem isso, o endpoint vira leitura arbitrária do filesystem.
 
 ### Fluxo de dados
 
@@ -119,6 +126,9 @@ MVP entrega: **hub + UI + MCP server (Claude) + wrapper de terminal**. Cursor/Co
 **UI (web):**
 - `Vite` + `React`.
 - `React Flow` — grafo de nós drag-and-drop.
+- `react-markdown` — render de markdown no viewer.
+- `shiki` (ou Prism) — syntax highlight de código no viewer.
+- Layout: aba/painel "Grafo" + aba/painel "Arquivos" (árvore clicável + pane de conteúdo).
 - Build estático servido pelo axum em `:3000`.
 
 **MCP server (Claude adapter):**
@@ -131,18 +141,23 @@ MVP entrega: **hub + UI + MCP server (Claude) + wrapper de terminal**. Cursor/Co
 - WS cai → Registry remove agent, broadcast de `state`, edges daquele agent removidas.
 - JSON inválido / tipo desconhecido → `error`, conexão segue viva.
 - Hub reinicia → tudo em memória se perde; agents precisam reconectar.
+- `GET /file` com path fora da raiz do workspace (`..`, symlink, absoluto) → 403, nada é lido.
+- `GET /file` em arquivo inexistente → 404. Arquivo binário/grande demais → 415/413 (não tenta renderizar).
 
 ## Testes
 
 - Unit: parsing do protocolo (serde round-trip), regras de edge (msg sem edge → error), Registry add/remove.
+- Unit: resolução de path do file service — rejeita `..`, symlink e path absoluto; aceita arquivo dentro da raiz.
 - Integração: subir hub, conectar 2 clientes WS fake, criar edge, mandar msg, assertar entrega; testar offline → error; testar broadcast.
-- Manual: abrir UI, conectar Claude via MCP + um terminal, ligar os nós, trocar mensagem.
+- Integração: `GET /files` lista a árvore; `GET /file?path=` devolve conteúdo; path traversal → 403.
+- Manual: abrir UI, conectar Claude via MCP + um terminal, ligar os nós, trocar mensagem; abrir aba Arquivos, clicar no spec, ver markdown renderizado.
 
 ## Fases sugeridas
 
 1. Hub core: WS server, Registry, Broker, protocolo, edges. Testável com clientes fake.
-2. REST `/state` + servir UI estática.
-3. UI React Flow: render nós do `state`, criar/remover edges, log de mensagens.
-4. MCP server (adapter Claude).
-5. Wrapper de terminal.
-6. (Depois) Cursor/Codex/SDK.
+2. REST `/state` + file service (`/files`, `/file` com guard de path) + servir UI estática.
+3. UI: viewer de arquivos (árvore clicável + render markdown/código). **Entrega cedo o "ver docs no browser".**
+4. UI React Flow: render nós do `state`, criar/remover edges, log de mensagens.
+5. MCP server (adapter Claude).
+6. Wrapper de terminal.
+7. (Depois) Cursor/Codex/SDK; editar arquivo no browser.
