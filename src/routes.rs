@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Query, State},
+    extract::{Query, State, WebSocketUpgrade},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
@@ -10,9 +10,16 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::hub::{Hub, SharedHub};
 use crate::workspace::{Workspace, WorkspaceError};
 
 pub type SharedWorkspace = Arc<Workspace>;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub workspace: SharedWorkspace,
+    pub hub: SharedHub,
+}
 
 struct ApiError(StatusCode, &'static str);
 
@@ -36,8 +43,13 @@ impl IntoResponse for ApiError {
     }
 }
 
-async fn get_files(State(ws): State<SharedWorkspace>) -> Response {
-    Json(json!({ "files": ws.list_files() })).into_response()
+async fn get_state(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let snap = state.hub.state();
+    Json(serde_json::to_value(snap).expect("state serializes"))
+}
+
+async fn get_files(State(state): State<AppState>) -> Response {
+    Json(json!({ "files": state.workspace.list_files() })).into_response()
 }
 
 #[derive(Deserialize)]
@@ -46,16 +58,33 @@ struct FileQuery {
 }
 
 async fn get_file(
-    State(ws): State<SharedWorkspace>,
+    State(state): State<AppState>,
     Query(q): Query<FileQuery>,
 ) -> Result<Json<crate::workspace::FileContent>, ApiError> {
-    Ok(Json(ws.read_file(&q.path)?))
+    Ok(Json(state.workspace.read_file(&q.path)?))
 }
 
-/// Router for just the JSON file API (no static serving). Used by main and tests.
-pub fn api_router(ws: SharedWorkspace) -> Router {
+async fn ws_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| {
+        let hub = state.hub.clone();
+        async move {
+            hub.handle_socket(socket).await;
+        }
+    })
+}
+
+/// Full API router (files + hub). Used by main and tests.
+pub fn app_router(workspace: SharedWorkspace, hub: SharedHub) -> Router {
+    let state = AppState { workspace, hub };
     Router::new()
+        .route("/state", get(get_state))
         .route("/files", get(get_files))
         .route("/file", get(get_file))
-        .with_state(ws)
+        .route("/ws", get(ws_upgrade))
+        .with_state(state)
+}
+
+/// Back-compat helper for file-only tests.
+pub fn api_router(ws: SharedWorkspace) -> Router {
+    app_router(ws, Arc::new(Hub::new()))
 }

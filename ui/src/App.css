@@ -1,12 +1,24 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; }
-.layout { display: flex; height: 100vh; }
+.layout { display: flex; flex-direction: column; height: 100vh; }
+.topbar {
+  display: flex; align-items: center; gap: 24px;
+  padding: 8px 16px; border-bottom: 1px solid #ddd; background: #fafafa;
+}
+.topbar h1 { font-size: 16px; margin: 0; }
+.topbar nav { display: flex; gap: 4px; }
+.topbar button {
+  background: none; border: 1px solid transparent; border-radius: 6px;
+  padding: 6px 12px; cursor: pointer; font: inherit;
+}
+.topbar button.active { background: #fff; border-color: #ccc; font-weight: 600; }
+.body { display: flex; flex: 1; min-height: 0; }
 .sidebar {
   width: 300px; min-width: 300px; overflow: auto;
   border-right: 1px solid #ddd; padding: 12px; background: #fafafa;
 }
-.sidebar h1 { font-size: 16px; margin: 0 0 12px; }
 .content { flex: 1; overflow: auto; padding: 24px; }
+.content.full { padding: 16px 24px; }
 .tree, .tree ul { list-style: none; margin: 0; padding-left: 12px; }
 .tree .dir { font-weight: 600; color: #444; }
 .tree .file {
@@ -17,3 +29,24 @@ body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; }
 .viewer.empty { color: #888; }
 .viewer pre { white-space: pre-wrap; }
 .error { color: #c00; }
+.muted { color: #888; }
+.hint { font-size: 13px; color: #555; }
+.hint code { font-size: 12px; background: #f0f0f0; padding: 2px 4px; border-radius: 4px; }
+.agents section { margin-bottom: 20px; }
+.agents-header { display: flex; align-items: center; gap: 12px; }
+.agents h2, .agents h3 { margin: 0 0 8px; font-size: 15px; }
+.status { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #eee; }
+.status-open { background: #d4edda; color: #155724; }
+.status-closed { background: #f8d7da; color: #721c24; }
+.agent-list, .edge-list, .msg-log ul { list-style: none; margin: 0; padding: 0; }
+.agent-list li, .edge-list li, .msg-log li {
+  padding: 4px 0; border-bottom: 1px solid #eee; font-size: 14px;
+}
+.tags { margin-left: 8px; color: #666; font-size: 12px; }
+.link-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.link-row select { padding: 4px 8px; }
+.link-row button, .link-btn {
+  padding: 4px 10px; border: 1px solid #ccc; border-radius: 4px;
+  background: #fff; cursor: pointer; font: inherit;
+}
+.msg-log { max-height: 240px; overflow: auto; border: 1px solid #eee; padding: 8px; border-radius: 6px; }
