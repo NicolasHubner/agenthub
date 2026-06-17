@@ -272,7 +272,15 @@ impl Hub {
             self.send_json(ws_tx, msg);
         }
         if let (Some(pty_in), ServerMessage::Msg { content, .. }) = (&entry.pty_in, msg) {
-            let _ = pty_in.send(format!("{content}\r").into_bytes());
+            // Inter-agent messages are fed into the peer terminal's stdin (the
+            // receiving agent CLI reads them as a prompt). Strip control chars
+            // so a crafted message can't smuggle extra newlines/commands or
+            // terminal escape sequences; we append exactly one submitting CR.
+            let safe: String = content
+                .chars()
+                .filter(|c| !c.is_control() || *c == '\t')
+                .collect();
+            let _ = pty_in.send(format!("{safe}\r").into_bytes());
         }
     }
 
