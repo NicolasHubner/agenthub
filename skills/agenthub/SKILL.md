@@ -67,6 +67,27 @@ Add to project or user settings:
 
 Install CLI on PATH (built with `./run.sh`). Same commands.
 
+## Notepad (memória viva)
+
+Conecte um terminal a um widget Notepad no canvas arrastando o cabo de saída do terminal (●) para o notepad. O notepad funciona como memória persistente do agente.
+
+```bash
+# Escreve ao notepad conectado (append, padrão)
+agenthub-cli note "descoberta: a função foo tem bug na linha 42"
+
+# Substitui o conteúdo inteiro (snapshot)
+agenthub-cli note --replace "estado atual: implementando feature X"
+
+# Mira por título em vez de edge (fallback)
+agenthub-cli note --to "Research Notes" "ref: RFC 7234 seção 3"
+```
+
+**Resolução do alvo:**
+1. `--to <título>` → busca widget por título
+2. Sem `--to` → auto-descobre via edge terminal→notepad no canvas
+
+**Modos:** `append` (padrão, log) | `replace` (snapshot, sobrescreve)
+
 ## Troubleshooting
 
 | Error | Fix |

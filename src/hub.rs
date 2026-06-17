@@ -8,14 +8,15 @@ use serde_json;
 use parking_lot::RwLock;
 use tokio::sync::{broadcast, Mutex};
 
-use crate::protocol::{AgentSnapshot, ClientMessage, ServerMessage};
+use crate::protocol::{AgentSnapshot, ClientMessage, ServerMessage, SubagentSnapshot};
 
 const LOG_CAP: usize = 1000;
 const BROADCAST_TO: &str = "*";
 
-/// Line injected into a canvas PTY as stdin. No ANSI codes — they corrupt readline state.
+/// Notification printed to the PTY output area — shows attribution without polluting stdin.
 pub fn pty_message_line(from: &str, content: &str) -> String {
-    format!("[{from}]: {content}\r\n")
+    // No bracket-wrapped name: shells glob-expand `[name]` on unquoted output.
+    format!("{from}: {content}\r\n")
 }
 
 pub type SharedHub = Arc<Hub>;
@@ -26,9 +27,15 @@ struct AgentEntry {
     pty_in: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
 }
 
+struct SubagentEntry {
+    label: String,
+    status: String,
+}
+
 #[derive(Clone)]
 pub struct Hub {
     agents: Arc<DashMap<String, AgentEntry>>,
+    subagents: Arc<DashMap<String, SubagentEntry>>,
     edges: Arc<RwLock<HashSet<(String, String)>>>,
     event_log: Arc<Mutex<VecDeque<ServerMessage>>>,
     notify: broadcast::Sender<String>,
@@ -39,6 +46,7 @@ impl Hub {
         let (notify, _) = broadcast::channel(256);
         Self {
             agents: Arc::new(DashMap::new()),
+            subagents: Arc::new(DashMap::new()),
             edges: Arc::new(RwLock::new(HashSet::new())),
             event_log: Arc::new(Mutex::new(VecDeque::new())),
             notify,
@@ -65,7 +73,30 @@ impl Hub {
             .iter()
             .map(|(a, b)| [a.clone(), b.clone()])
             .collect();
-        ServerMessage::State { agents, edges }
+        let subagents = self
+            .subagents
+            .iter()
+            .map(|e| SubagentSnapshot {
+                id: e.key().clone(),
+                label: e.value().label.clone(),
+                status: e.value().status.clone(),
+            })
+            .collect();
+        ServerMessage::State { agents, edges, subagents }
+    }
+
+    pub fn upsert_subagent(&self, id: String, label: String, status: String) {
+        let is_terminal = status == "done" || status == "error";
+        self.subagents.insert(id.clone(), SubagentEntry { label, status });
+        self.broadcast(&self.state());
+        if is_terminal {
+            let hub = self.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
+                hub.subagents.remove(&id);
+                hub.broadcast(&hub.state());
+            });
+        }
     }
 
     pub async fn recent_events(&self) -> Vec<ServerMessage> {
@@ -210,13 +241,38 @@ impl Hub {
         Ok(())
     }
 
+    /// Broadcast a note to UI subscribers; the frontend resolves which notepad to write.
+    /// Not pushed to the event log — replaying on reconnect would re-apply appends.
+    pub fn route_note(
+        &self,
+        from: &str,
+        to: Option<String>,
+        content: &str,
+        mode: &str,
+    ) -> Result<(), ServerMessage> {
+        if !self.agents.contains_key(from) {
+            return Err(ServerMessage::Error {
+                reason: "sender not registered".into(),
+                to: None,
+            });
+        }
+        let mode = if mode == "replace" { "replace" } else { "append" };
+        let ev = ServerMessage::WidgetUpdate {
+            from: from.to_string(),
+            to,
+            content: content.to_string(),
+            mode: mode.to_string(),
+        };
+        self.broadcast(&ev);
+        Ok(())
+    }
+
     fn deliver(&self, entry: &AgentEntry, msg: &ServerMessage) {
         if let Some(ws_tx) = &entry.ws_tx {
             self.send_json(ws_tx, msg);
         }
-        if let (Some(pty_in), ServerMessage::Msg { from, content, .. }) = (&entry.pty_in, msg) {
-            let line = pty_message_line(from, content);
-            let _ = pty_in.send(line.into_bytes());
+        if let (Some(pty_in), ServerMessage::Msg { content, .. }) = (&entry.pty_in, msg) {
+            let _ = pty_in.send(format!("{content}\r").into_bytes());
         }
     }
 

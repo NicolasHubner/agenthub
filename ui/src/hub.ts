@@ -11,10 +11,17 @@ export type AgentSnapshot = {
   tags: string[];
 };
 
+export type SubagentSnapshot = {
+  id: string;
+  label: string;
+  status: "running" | "done" | "error";
+};
+
 export type HubState = {
   type: "state";
   agents: AgentSnapshot[];
   edges: [string, string][];
+  subagents: SubagentSnapshot[];
 };
 
 export type HubMsg = {
@@ -30,7 +37,15 @@ export type HubError = {
   to?: string;
 };
 
-export type HubEvent = HubState | HubMsg | HubError;
+export type HubWidgetUpdate = {
+  type: "widget_update";
+  from: string;
+  to?: string;
+  content: string;
+  mode: string;
+};
+
+export type HubEvent = HubState | HubMsg | HubError | HubWidgetUpdate;
 
 export type HubConnection = {
   ws: WebSocket;

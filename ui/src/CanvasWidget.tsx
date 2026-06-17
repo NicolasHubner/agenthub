@@ -12,6 +12,7 @@ type Props = {
   selected: boolean;
   zoom: number;
   spaceHeld: boolean;
+  linking?: boolean;
   screenToCanvas: (sx: number, sy: number) => { x: number; y: number };
   onMove: (id: string, x: number, y: number) => void;
   onResize: (id: string, width: number, height: number) => void;
@@ -25,6 +26,7 @@ export function CanvasWidget({
   selected,
   zoom,
   spaceHeld,
+  linking,
   screenToCanvas,
   onMove,
   onResize,
@@ -56,7 +58,7 @@ export function CanvasWidget({
 
   return (
     <div
-      className={`canvas-widget ${meta.className}${selected ? " selected" : ""}`}
+      className={`canvas-widget ${meta.className}${selected ? " selected" : ""}${linking ? " link-target" : ""}`}
       style={{ left: widget.x, top: widget.y, width: widget.width, height: widget.height }}
       data-node-id={widget.id}
       onMouseDown={() => onSelect(widget.id)}
@@ -92,6 +94,7 @@ export function CanvasWidget({
         )}
       </div>
       <div className="resize-handle" onMouseDown={startResize} />
+      {linking && <div className="widget-port" />}
     </div>
   );
 }

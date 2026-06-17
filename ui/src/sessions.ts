@@ -29,6 +29,7 @@ export type SessionSnapshot = {
   terminals: TerminalSession[];
   widgets?: CanvasWidget[];
   edges: [string, string][];
+  widgetEdges?: [string, string][];
   view?: CanvasView;
 };
 
@@ -78,6 +79,6 @@ export function presetById(id: string): AgentPreset {
   return AGENT_PRESETS.find((p) => p.id === id) ?? AGENT_PRESETS[4];
 }
 
-export const DEFAULT_TERM_WIDTH = 420;
-export const DEFAULT_TERM_HEIGHT = 280;
+export const DEFAULT_TERM_WIDTH = 700;
+export const DEFAULT_TERM_HEIGHT = 480;
 export const DEFAULT_VIEW: CanvasView = { x: 48, y: 48, zoom: 1 };

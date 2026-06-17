@@ -32,9 +32,10 @@ fn print_usage() {
     eprintln!(
         "AgentHub CLI — talk to linked agents on demand (Maestri-style)\n\
          \n\
-         agenthub-cli list              List agents + links\n\
-         agenthub-cli ask <to> <msg>    Send message (requires canvas link)\n\
-         agenthub-cli peers             Linked agents from this terminal\n\
+         agenthub-cli list                                   List agents + links\n\
+         agenthub-cli ask <to> <msg>                         Send message (requires canvas link)\n\
+         agenthub-cli peers                                  Linked agents from this terminal\n\
+         agenthub-cli note [--to <title>] [--replace] <msg>  Write to connected notepad\n\
          \n\
          Env: AGENTHUB_NAME (auto in UI terminals), AGENTHUB_URL, AGENTHUB_PORT"
     );
@@ -121,6 +122,31 @@ fn cmd_ask(to: &str, message: &str) -> Result<(), String> {
     Err(format!("hub returned {status}"))
 }
 
+fn cmd_note(to: Option<&str>, content: &str, mode: &str) -> Result<(), String> {
+    let from = agent_name()?;
+    let url = format!("{}/note", hub_url());
+    let body = serde_json::json!({
+        "from": from,
+        "to": to,
+        "content": content,
+        "mode": mode,
+    });
+    let resp = ureq::post(&url)
+        .set("Content-Type", "application/json")
+        .send_string(&body.to_string())
+        .map_err(|e| format!("send failed: {e}"))?;
+    let status = resp.status();
+    if status == 204 {
+        return Ok(());
+    }
+    if let Ok(err) = resp.into_json::<serde_json::Value>() {
+        if let Some(reason) = err.get("reason").and_then(|r| r.as_str()) {
+            return Err(reason.to_string());
+        }
+    }
+    Err(format!("hub returned {status}"))
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.as_slice() {
@@ -136,6 +162,26 @@ fn main() {
         [cmd] if cmd == "peers" => cmd_peers(),
         [cmd, to, msg] if cmd == "ask" && !msg.is_empty() => cmd_ask(to, msg),
         [cmd, to, rest @ ..] if cmd == "ask" => cmd_ask(to, &rest.join(" ")),
+        [cmd, rest @ ..] if cmd == "note" => {
+            let mut to: Option<String> = None;
+            let mut mode = "append".to_string();
+            let mut content_parts: Vec<&str> = vec![];
+            let mut iter = rest.iter();
+            while let Some(arg) = iter.next() {
+                match arg.as_str() {
+                    "--to" => { to = iter.next().map(|s| s.as_str().to_string()); }
+                    "--replace" => { mode = "replace".into(); }
+                    "--append" => { mode = "append".into(); }
+                    s => { content_parts.push(s); }
+                }
+            }
+            if content_parts.is_empty() {
+                eprintln!("usage: agenthub-cli note [--to <title>] [--replace] <content...>");
+                Err("missing content".into())
+            } else {
+                cmd_note(to.as_deref(), &content_parts.join(" "), &mode)
+            }
+        }
         _ => {
             print_usage();
             Err("unknown command".into())

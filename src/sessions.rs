@@ -14,8 +14,8 @@ pub struct TerminalSession {
     pub preset: String,
     pub x: f64,
     pub y: f64,
-    pub width: u32,
-    pub height: u32,
+    pub width: f64,
+    pub height: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -33,8 +33,8 @@ pub struct CanvasWidget {
     pub content: String,
     pub x: f64,
     pub y: f64,
-    pub width: u32,
-    pub height: u32,
+    pub width: f64,
+    pub height: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -45,6 +45,8 @@ pub struct SessionSnapshot {
     pub widgets: Vec<CanvasWidget>,
     #[serde(default)]
     pub edges: Vec<[String; 2]>,
+    #[serde(default, rename = "widgetEdges")]
+    pub widget_edges: Vec<[String; 2]>,
     #[serde(default)]
     pub view: Option<CanvasView>,
 }

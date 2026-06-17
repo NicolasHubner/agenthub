@@ -44,8 +44,53 @@ struct ResizeMsg {
     rows: u16,
 }
 
+fn tmux_available() -> bool {
+    let path = std::env::var("PATH").unwrap_or_default();
+    std::env::split_paths(&path).any(|dir| {
+        std::fs::metadata(dir.join("tmux"))
+            .map(|m| m.is_file())
+            .unwrap_or(false)
+    })
+}
+
+/// tmux persistence is on by default (sessions survive UI disconnect).
+/// Opt out with AGENTHUB_USE_TMUX=0. Falls back to plain shell if tmux is missing.
 fn use_tmux() -> bool {
-    std::env::var("AGENTHUB_USE_TMUX").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    let enabled = match std::env::var("AGENTHUB_USE_TMUX") {
+        Ok(v) => !(v == "0" || v.eq_ignore_ascii_case("false")),
+        Err(_) => true,
+    };
+    enabled && tmux_available()
+}
+
+/// Stable tmux session name for a terminal, mirroring the sanitization used at spawn.
+pub fn tmux_session_name(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("agenthub-{sanitized}")
+}
+
+/// Best-effort kill of a terminal's persistent tmux session (used when the UI
+/// permanently removes a terminal node). No-op when tmux is unavailable.
+pub async fn kill_tmux_session(name: &str) {
+    if !tmux_available() {
+        return;
+    }
+    let session = tmux_session_name(name);
+    let _ = tokio::process::Command::new("tmux")
+        .args(["kill-session", "-t", &session])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await;
 }
 
 fn inject_hub_env(cmd: &mut CommandBuilder, spawn: &SpawnMsg) {
@@ -96,22 +141,13 @@ fn shell_command(spawn: &SpawnMsg, cwd: &str) -> CommandBuilder {
 }
 
 fn tmux_command(spawn: &SpawnMsg, cwd: &str) -> CommandBuilder {
-    let session = format!(
-        "agenthub-{}",
-        spawn
-            .name
-            .chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>()
-    );
+    let session = tmux_session_name(&spawn.name);
+    // remain-on-exit keeps the pane (and session) alive after the process
+    // exits, so reopening the UI always re-attaches to the exact prior state
+    // instead of respawning a fresh shell.
     let inner = format!(
-        "export TERM=xterm-256color COLORTERM=truecolor; {}",
+        "export TERM=xterm-256color COLORTERM=truecolor; \
+         tmux set-option -w remain-on-exit on 2>/dev/null; {}",
         agent_launch_script(&spawn.command)
     );
     let mut cmd = CommandBuilder::new("tmux");

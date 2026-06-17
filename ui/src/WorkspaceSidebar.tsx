@@ -2,6 +2,7 @@ import { useState } from "react";
 import { FileTree } from "./FileTree";
 import type { CanvasWidget, TerminalSession } from "./sessions";
 import { presetById } from "./sessions";
+import type { SubagentSnapshot } from "./hub";
 
 export type CanvasItem =
   | { type: "terminal"; id: string; label: string; icon: string; color: string }
@@ -17,6 +18,7 @@ type Props = {
   onAddTerminal: () => void;
   files: string[];
   onOpenFile: (path: string) => void;
+  subagents?: SubagentSnapshot[];
 };
 
 const WIDGET_TOOLS: { kind: CanvasWidget["kind"]; icon: string; label: string }[] = [
@@ -35,6 +37,7 @@ export function WorkspaceSidebar({
   onAddTerminal,
   files,
   onOpenFile,
+  subagents = [],
 }: Props) {
   const [filesOpen, setFilesOpen] = useState(false);
   const terminals = items.filter((i) => i.type === "terminal");
@@ -115,6 +118,22 @@ export function WorkspaceSidebar({
                   <span className="ws-item-icon">{item.icon}</span>
                   {item.label}
                 </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {subagents.length > 0 && (
+        <div className="ws-section">
+          <div className="ws-section-title">Running</div>
+          <ul className="ws-item-list">
+            {subagents.map((sa) => (
+              <li key={sa.id}>
+                <div className="ws-subagent">
+                  <span className={`ws-subagent-dot ws-subagent-dot--${sa.status}`} />
+                  <span className="ws-subagent-label">{sa.label || "Subagent"}</span>
+                </div>
               </li>
             ))}
           </ul>

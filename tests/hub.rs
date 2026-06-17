@@ -20,7 +20,7 @@ fn register_and_connect() {
 
     let state = hub.state();
     match state {
-        ServerMessage::State { agents, edges } => {
+        ServerMessage::State { agents, edges, .. } => {
             assert_eq!(agents.len(), 2);
             assert_eq!(edges.len(), 1);
         }

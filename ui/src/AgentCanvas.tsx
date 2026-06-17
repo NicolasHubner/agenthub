@@ -14,6 +14,7 @@ import {
   connectHub,
   hubConnect,
   hubDisconnect,
+  type SubagentSnapshot,
   type HubConnection,
   type HubEvent,
 } from "./hub";
@@ -97,6 +98,14 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
   const [nodes, setNodes] = useState<NodeModel[]>([]);
   const [widgets, setWidgets] = useState<WidgetModel[]>([]);
   const [edges, setEdges] = useState<[string, string][]>([]);
+  const [widgetEdges, setWidgetEdges] = useState<[string, string][]>([]);
+  const nodesRef = useRef<NodeModel[]>([]);
+  nodesRef.current = nodes;
+  const widgetsRef = useRef<WidgetModel[]>([]);
+  widgetsRef.current = widgets;
+  const widgetEdgesRef = useRef<[string, string][]>([]);
+  widgetEdgesRef.current = widgetEdges;
+  const [subagents, setSubagents] = useState<SubagentSnapshot[]>([]);
   const [pendingEdges, setPendingEdges] = useState<[string, string][]>([]);
   const [status, setStatus] = useState<"open" | "closed" | "error">("closed");
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -152,6 +161,7 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
           nextWidgetId = maxW + 1;
         }
         if (data.edges) setPendingEdges(data.edges);
+        if (data.widgetEdges?.length) setWidgetEdges(data.widgetEdges);
         if (data.view) setView(data.view);
       })
       .catch(() => setCwd("."))
@@ -163,9 +173,33 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
       (ev: HubEvent) => {
         if (ev.type === "state") {
           setEdges(ev.edges);
+          setSubagents(ev.subagents ?? []);
           setConnectError(null);
         } else if (ev.type === "error") {
           setConnectError(ev.reason);
+        } else if (ev.type === "widget_update") {
+          const currentNodes = nodesRef.current;
+          const currentWidgetEdges = widgetEdgesRef.current;
+          let targetId: string | undefined;
+          if (ev.to) {
+            targetId = widgetsRef.current.find((w) => w.title === ev.to)?.id;
+          } else {
+            const fromNode = currentNodes.find((n) => n.name === ev.from);
+            if (fromNode) {
+              targetId = currentWidgetEdges.find(([nid]) => nid === fromNode.id)?.[1];
+            }
+          }
+          if (targetId) {
+            const wid = targetId;
+            const { content, mode } = ev;
+            setWidgets((ws) =>
+              ws.map((w) => {
+                if (w.id !== wid) return w;
+                const next = mode === "replace" ? content : w.content ? w.content + "\n" + content : content;
+                return { ...w, content: next };
+              }),
+            );
+          }
         }
       },
       setStatus,
@@ -185,10 +219,10 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(() => {
-      saveSessions({ terminals: nodes, widgets, edges, view }).catch(() => {});
+      saveSessions({ terminals: nodes, widgets, edges, widgetEdges, view }).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [nodes, widgets, edges, view, loaded]);
+  }, [nodes, widgets, edges, widgetEdges, view, loaded]);
 
   const moveNode = useCallback((id: string, x: number, y: number) => {
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, x, y } : n)));
@@ -243,11 +277,13 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
       }
     }
     setNodes((ns) => ns.filter((n) => n.id !== id));
+    setWidgetEdges((we) => we.filter(([nid]) => nid !== id));
     if (selectedId === id) setSelectedId(null);
   }
 
   function removeWidget(id: string) {
     setWidgets((ws) => ws.filter((w) => w.id !== id));
+    setWidgetEdges((we) => we.filter(([, wid]) => wid !== id));
     if (selectedId === id) setSelectedId(null);
   }
 
@@ -271,20 +307,35 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
     (targetId: string) => {
       const fromId = linkFromRef.current;
       if (!fromId || fromId === targetId) return;
-      const a = nodes.find((n) => n.id === fromId);
+      const fromNode = nodes.find((n) => n.id === fromId);
+
+      const targetWidget = widgets.find((w) => w.id === targetId);
+      if (targetWidget) {
+        if (fromNode) {
+          setWidgetEdges((prev) => {
+            const exists = prev.some(([nid, wid]) => nid === fromId && wid === targetId);
+            return exists ? prev : [...prev, [fromId, targetId]];
+          });
+        }
+        linkFromRef.current = null;
+        setLinkFrom(null);
+        setLinkCursor(null);
+        return;
+      }
+
       const b = nodes.find((n) => n.id === targetId);
       const ws = hubRef.current?.ws;
-      if (!a || !b) return;
+      if (!fromNode || !b) return;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         setConnectError("hub not connected");
         return;
       }
-      hubConnect(ws, a.name, b.name);
+      hubConnect(ws, fromNode.name, b.name);
       linkFromRef.current = null;
       setLinkFrom(null);
       setLinkCursor(null);
     },
-    [nodes],
+    [nodes, widgets],
   );
 
   function startLink(id: string, e: React.MouseEvent) {
@@ -398,11 +449,12 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
   }
 
   function onViewportMouseMove(e: React.MouseEvent) {
-    if (!panRef.current) return;
+    const pan = panRef.current;
+    if (!pan) return;
     setView((v) => ({
       ...v,
-      x: panRef.current!.vx + (e.clientX - panRef.current!.sx),
-      y: panRef.current!.vy + (e.clientY - panRef.current!.sy),
+      x: pan.vx + (e.clientX - pan.sx),
+      y: pan.vy + (e.clientY - pan.sy),
     }));
   }
 
@@ -463,6 +515,7 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
           onAddTerminal={() => addTerminal(presetById("bash"))}
           files={files}
           onOpenFile={onOpenFile}
+          subagents={subagents}
         />
 
         <div className="maestri-canvas-wrap">
@@ -509,6 +562,20 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
                     />
                   );
                 })}
+                {widgetEdges.map(([nodeId, widgetId]) => {
+                  const node = nodes.find((n) => n.id === nodeId);
+                  const widget = widgets.find((w) => w.id === widgetId);
+                  if (!node || !widget) return null;
+                  const p1 = portFor(node, "out");
+                  const p2 = { x: widget.x, y: widget.y + widget.height / 2 };
+                  return (
+                    <path
+                      key={`we-${nodeId}-${widgetId}`}
+                      d={cablePath(p1.x, p1.y, p2.x, p2.y)}
+                      className="edge-cable widget-edge"
+                    />
+                  );
+                })}
                 {linkStart && linkCursor && (
                   <path
                     d={cablePath(linkStart.x, linkStart.y, linkCursor.x, linkCursor.y)}
@@ -524,6 +591,7 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
                   selected={selectedId === widget.id}
                   zoom={view.zoom}
                   spaceHeld={spaceHeld}
+                  linking={!!linkFrom}
                   screenToCanvas={toCanvas}
                   onMove={moveWidget}
                   onResize={resizeWidget}

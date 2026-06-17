@@ -58,6 +58,7 @@ async fn get_sessions(State(state): State<AppState>) -> Json<serde_json::Value> 
         "terminals": snap.terminals,
         "widgets": snap.widgets,
         "edges": snap.edges,
+        "widgetEdges": snap.widget_edges,
         "view": snap.view,
     }))
 }
@@ -66,6 +67,22 @@ async fn put_sessions(
     State(state): State<AppState>,
     Json(body): Json<SessionSnapshot>,
 ) -> Result<StatusCode, ApiError> {
+    // Terminals dropped from the canvas are gone for good: kill their
+    // persistent tmux sessions so dead/orphaned sessions don't pile up.
+    // Plain reloads re-save the same set, so nothing is killed.
+    let prev: std::collections::HashSet<String> = state
+        .sessions
+        .get()
+        .terminals
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+    let next: std::collections::HashSet<String> =
+        body.terminals.iter().map(|t| t.name.clone()).collect();
+    for removed in prev.difference(&next) {
+        crate::pty::kill_tmux_session(removed).await;
+    }
+
     state
         .sessions
         .save(body)
@@ -115,6 +132,45 @@ struct MsgBody {
     content: String,
 }
 
+async fn post_note(State(state): State<AppState>, Json(body): Json<NoteBody>) -> Response {
+    match state
+        .hub
+        .route_note(&body.from, body.to, &body.content, &body.mode)
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(err) => (StatusCode::BAD_REQUEST, Json(err)).into_response(),
+    }
+}
+
+fn default_mode() -> String {
+    "append".into()
+}
+
+#[derive(Deserialize)]
+struct NoteBody {
+    from: String,
+    #[serde(default)]
+    to: Option<String>,
+    content: String,
+    #[serde(default = "default_mode")]
+    mode: String,
+}
+
+async fn post_subagent(
+    State(state): State<AppState>,
+    Json(body): Json<SubagentBody>,
+) -> StatusCode {
+    state.hub.upsert_subagent(body.id, body.label, body.status);
+    StatusCode::NO_CONTENT
+}
+
+#[derive(Deserialize)]
+struct SubagentBody {
+    id: String,
+    label: String,
+    status: String,
+}
+
 async fn pty_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
         let hub = state.hub.clone();
@@ -134,6 +190,8 @@ pub fn app_router(workspace: SharedWorkspace, hub: SharedHub, sessions: Arc<Sess
     Router::new()
         .route("/state", get(get_state))
         .route("/msg", post(post_msg))
+        .route("/note", post(post_note))
+        .route("/subagents", post(post_subagent))
         .route("/sessions", get(get_sessions).put(put_sessions))
         .route("/files", get(get_files))
         .route("/file", get(get_file))
