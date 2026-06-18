@@ -225,7 +225,9 @@ body {
 .edge-cable {
   fill: none; stroke: #9ca3af; stroke-width: 2.5;
   stroke-dasharray: 8 6; stroke-linecap: round;
+  pointer-events: stroke;
 }
+.edge-cable:not(.drafting):hover { stroke: #ef4444; stroke-width: 4; }
 .edge-cable.drafting { stroke: #6b7280; opacity: .7; }
 .edge-cable.widget-edge { stroke: #a78bfa; stroke-dasharray: 6 4; }
 .widget-port {
@@ -279,6 +281,29 @@ body {
 
 .connect-error { font-size: 12px; color: #b91c1c; margin-left: 8px; }
 .terminal-node.link-target { outline: 2px dashed var(--agent-color, #3b82f6); outline-offset: 2px; }
+.terminal-node.selected { outline: 2px solid var(--agent-color, #3b82f6); outline-offset: 2px; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15); }
+
+.prefix-indicator {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: #1a1b1e;
+  color: #e6e6e6;
+  border: 1px solid #3b82f6;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+.prefix-indicator strong { color: #3b82f6; }
+.prefix-indicator span { opacity: 0.75; }
 .node-port {
   position: absolute; width: 18px; height: 18px; border-radius: 50%;
   background: #fff; border: 2px solid #9ca3af; z-index: 4;

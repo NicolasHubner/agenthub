@@ -35,6 +35,8 @@ Inspired by tools like [Maestri](https://maestri.ai), but deliberately simpler: 
 | `agenthub-connect` terminal CLI | ✅ |
 | Workspace file tree + doc viewer | ✅ |
 | Path traversal protection on file API | ✅ |
+| Installable PWA (desktop app, all OS) | ✅ |
+| tmux-style keyboard shortcuts | ✅ |
 | Drag-and-drop node graph | 🔜 |
 | MCP adapter (Claude Code) | 🔜 |
 | Terminal wrapper improvements | 🔜 |
@@ -46,7 +48,27 @@ Inspired by tools like [Maestri](https://maestri.ai), but deliberately simpler: 
 - [Rust](https://rustup.rs/) (2021 edition)
 - [Node.js](https://nodejs.org/) 18+ and npm
 
-### 1. Build and run the hub
+### Easiest: one command (Linux / macOS / Windows)
+
+The launcher builds the UI + backend if needed, starts the server, and opens your browser.
+
+```bash
+# Linux / macOS
+./scripts/agenthub-start.sh
+```
+
+```powershell
+# Windows (PowerShell)
+./scripts/agenthub-start.ps1
+```
+
+On Windows you can also **double-click** `scripts\agenthub-start.cmd`.
+
+Then in the browser, click the **install icon** in the address bar (Chrome/Edge) to install AgentHub as a **desktop app (PWA)** — it opens in its own window and works on Linux, macOS, and Windows. The Rust backend must be running for terminals to work; the launcher above keeps it running.
+
+> Prefer a packaged download? Tag a release (`git tag v0.1.0 && git push --tags`) — CI builds `agenthub-linux-x64.tar.gz`, `agenthub-macos-arm64.tar.gz`, and `agenthub-windows-x64.zip`, each bundling the binary, the built UI, and the launcher.
+
+### Manual: build and run the hub
 
 ```bash
 cd ui && npm install && npm run build && cd ..
@@ -54,6 +76,21 @@ AGENTHUB_WORKSPACE=. cargo run
 ```
 
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The **Agents** tab is the main view; **Files** is the doc viewer.
+
+### Keyboard shortcuts (tmux-style)
+
+On the canvas, press the prefix **`Ctrl-b`**, then a command key:
+
+| Key | Action |
+|-----|--------|
+| `c` | New terminal |
+| `x` | Close focused terminal |
+| `n` / `p` | Cycle to next / previous terminal |
+| `←` `↑` `↓` `→` | Move focus to the terminal in that direction |
+| `z` | Zoom (center + fit) the focused terminal |
+| `0`–`9` | Jump to terminal N |
+
+Other canvas controls: **Space + drag** to pan, **Alt + scroll** to zoom.
 
 ### 2. Connect agents from separate terminals
 

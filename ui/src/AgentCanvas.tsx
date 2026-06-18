@@ -11,6 +11,15 @@ import {
 import { CanvasToolbar, type CanvasTool } from "./CanvasToolbar";
 import { CanvasWidget } from "./CanvasWidget";
 import {
+  cycleSelection,
+  isModifierKey,
+  isPrefixChord,
+  jumpSelection,
+  resolvePrefixCommand,
+  spatialNavigate,
+  type Box,
+} from "./keymap";
+import {
   connectHub,
   hubConnect,
   hubDisconnect,
@@ -120,6 +129,11 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
   const [panning, setPanning] = useState(false);
   const [activeTool, setActiveTool] = useState<CanvasTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId;
+  const [prefixActive, setPrefixActive] = useState(false);
+  const prefixActiveRef = useRef(false);
+  const prefixTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panRef = useRef<{ sx: number; sy: number; vx: number; vy: number } | null>(null);
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -303,6 +317,62 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
     }));
   }, [nodes, widgets]);
 
+  // Center a node and zoom so it fills most of the viewport (tmux "zoom pane").
+  const zoomToNode = useCallback((id: string) => {
+    const node = nodesRef.current.find((n) => n.id === id);
+    if (!node || !viewportRef.current) return;
+    const rect = viewportRef.current.getBoundingClientRect();
+    const pad = 80;
+    const zoom = clamp(
+      Math.min(rect.width / (node.width + pad), rect.height / (node.height + pad)),
+      0.35,
+      1.75,
+    );
+    const cx = node.x + node.width / 2;
+    const cy = node.y + node.height / 2;
+    setSelectedId(id);
+    setView({ zoom, x: rect.width / 2 - cx * zoom, y: rect.height / 2 - cy * zoom });
+  }, []);
+
+  // Dispatch a resolved tmux-prefix command against the current panes.
+  function runPaneCommand(cmd: ReturnType<typeof resolvePrefixCommand>) {
+    if (!cmd) return;
+    const ns = nodesRef.current;
+    const ids = ns.map((n) => n.id);
+    const cur = selectedIdRef.current;
+    switch (cmd.kind) {
+      case "new":
+        addTerminal(presetById("bash"));
+        return;
+      case "close":
+        if (cur && ns.some((n) => n.id === cur)) removeNode(cur);
+        return;
+      case "cycle": {
+        const next = cycleSelection(ids, cur, cmd.dir);
+        if (next) focusItem(next);
+        return;
+      }
+      case "nav": {
+        const boxes: Box[] = ns.map((n) => ({ id: n.id, x: n.x, y: n.y, width: n.width, height: n.height }));
+        const next = spatialNavigate(boxes, cur, cmd.dx, cmd.dy);
+        if (next) focusItem(next);
+        return;
+      }
+      case "jump": {
+        const next = jumpSelection(ids, cmd.index);
+        if (next) focusItem(next);
+        return;
+      }
+      case "zoom":
+        if (cur && ns.some((n) => n.id === cur)) zoomToNode(cur);
+        return;
+      case "cancel":
+        return;
+    }
+  }
+  const actionsRef = useRef(runPaneCommand);
+  actionsRef.current = runPaneCommand;
+
   const completeLink = useCallback(
     (targetId: string) => {
       const fromId = linkFromRef.current;
@@ -407,6 +477,43 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
+  // tmux-style prefix keymap: Ctrl-b then a command key.
+  // Capture phase so the chord is swallowed before xterm forwards it to the PTY.
+  useEffect(() => {
+    function clearPrefix() {
+      prefixActiveRef.current = false;
+      setPrefixActive(false);
+      if (prefixTimer.current) clearTimeout(prefixTimer.current);
+      prefixTimer.current = null;
+    }
+    function armPrefix() {
+      prefixActiveRef.current = true;
+      setPrefixActive(true);
+      if (prefixTimer.current) clearTimeout(prefixTimer.current);
+      prefixTimer.current = setTimeout(clearPrefix, 2500);
+    }
+    function onKeyDownCapture(e: KeyboardEvent) {
+      if (prefixActiveRef.current) {
+        if (isModifierKey(e.key)) return; // wait for a real command key
+        e.preventDefault();
+        e.stopPropagation();
+        actionsRef.current(resolvePrefixCommand(e.key));
+        clearPrefix();
+        return;
+      }
+      if (isPrefixChord(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        armPrefix();
+      }
+    }
+    window.addEventListener("keydown", onKeyDownCapture, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDownCapture, true);
+      if (prefixTimer.current) clearTimeout(prefixTimer.current);
     };
   }, []);
 
@@ -525,6 +632,13 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
             onAddTerminal={(presetId) => addTerminal(presetById(presetId))}
           />
 
+          {prefixActive && (
+            <div className="prefix-indicator" role="status">
+              <strong>Ctrl-b</strong>
+              <span>c new · x close · n/p cycle · ←↑↓→ move · z zoom · 0-9 jump</span>
+            </div>
+          )}
+
           <div
             className={`canvas-viewport${spaceHeld ? " pan-ready" : ""}${panning ? " panning" : ""}${activeTool !== "select" ? " place-mode" : ""}`}
             ref={viewportRef}
@@ -559,6 +673,12 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
                       key={`${a}-${b}`}
                       d={cablePath(p1.x, p1.y, p2.x, p2.y)}
                       className="edge-cable"
+                      style={{ cursor: "pointer" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const ws = hubRef.current?.ws;
+                        if (ws && ws.readyState === WebSocket.OPEN) hubDisconnect(ws, a, b);
+                      }}
                     />
                   );
                 })}
@@ -615,6 +735,7 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
                   onPortMouseUp={finishLink}
                   linking={!!linkFrom}
                   spaceHeld={spaceHeld}
+                  selected={selectedId === node.id}
                 />
               ))}
             </div>

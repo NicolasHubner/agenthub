@@ -19,6 +19,7 @@ type Props = {
   onPortMouseUp: (id: string) => void;
   linking: boolean;
   spaceHeld: boolean;
+  selected: boolean;
 };
 
 export function TerminalNode({
@@ -33,6 +34,7 @@ export function TerminalNode({
   onPortMouseUp,
   linking,
   spaceHeld,
+  selected,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -90,6 +92,11 @@ export function TerminalNode({
     return () => ro.disconnect();
   }, [node.width, node.height]);
 
+  // Focus the terminal when it becomes the selected pane (keyboard navigation).
+  useEffect(() => {
+    if (selected) termRef.current?.focus();
+  }, [selected]);
+
   function onHeaderMouseDown(e: React.MouseEvent) {
     if (spaceHeld) return;
     if ((e.target as HTMLElement).closest("button")) return;
@@ -140,7 +147,7 @@ export function TerminalNode({
 
   return (
     <div
-      className={`terminal-node${linking ? " link-target" : ""}`}
+      className={`terminal-node${linking ? " link-target" : ""}${selected ? " selected" : ""}`}
       style={
         {
           left: node.x,

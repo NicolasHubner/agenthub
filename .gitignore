@@ -1,3 +1,5 @@
 /target
 /ui/node_modules
 /ui/dist
+/.agenthub
+/.claude/settings.local.json
