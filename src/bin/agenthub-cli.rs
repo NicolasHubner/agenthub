@@ -33,7 +33,8 @@ fn print_usage() {
         "AgentHub CLI — talk to linked agents on demand (Maestri-style)\n\
          \n\
          agenthub-cli list                                   List agents + links\n\
-         agenthub-cli ask <to> <msg>                         Send message (requires canvas link)\n\
+         agenthub-cli ask <to> <msg>                         Send message, blocks until reply\n\
+         agenthub-cli reply <to> <msg>                       Reply to a pending ask\n\
          agenthub-cli peers                                  Linked agents from this terminal\n\
          agenthub-cli note [--to <title>] [--replace] <msg>  Write to connected notepad\n\
          \n\
@@ -104,14 +105,42 @@ fn cmd_peers() -> Result<(), String> {
 fn cmd_ask(to: &str, message: &str) -> Result<(), String> {
     let from = agent_name()?;
     let url = format!("{}/msg", hub_url());
-    let body = serde_json::json!({ "from": from, "to": to, "content": message });
+    let body = serde_json::json!({ "from": from, "to": to, "content": message, "awaiting_reply": true });
+    let resp = ureq::post(&url)
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_secs(310))
+        .send_string(&body.to_string())
+        .map_err(|e| format!("send failed: {e}"))?;
+    let status = resp.status();
+    if status == 200 {
+        if let Ok(data) = resp.into_json::<serde_json::Value>() {
+            if let Some(reply) = data.get("reply").and_then(|r| r.as_str()) {
+                println!("{reply}");
+            }
+        }
+        return Ok(());
+    }
+    if status == 408 {
+        return Err("timeout: no reply within 5 minutes".into());
+    }
+    if let Ok(err) = resp.into_json::<serde_json::Value>() {
+        if let Some(reason) = err.get("reason").and_then(|r| r.as_str()) {
+            return Err(reason.to_string());
+        }
+    }
+    Err(format!("hub returned {status}"))
+}
+
+fn cmd_reply(to: &str, content: &str) -> Result<(), String> {
+    let from = agent_name()?;
+    let url = format!("{}/reply", hub_url());
+    let body = serde_json::json!({ "from": from, "to": to, "content": content });
     let resp = ureq::post(&url)
         .set("Content-Type", "application/json")
         .send_string(&body.to_string())
         .map_err(|e| format!("send failed: {e}"))?;
     let status = resp.status();
     if status == 204 {
-        println!("sent to {to}");
         return Ok(());
     }
     if let Ok(err) = resp.into_json::<serde_json::Value>() {
@@ -162,6 +191,8 @@ fn main() {
         [cmd] if cmd == "peers" => cmd_peers(),
         [cmd, to, msg] if cmd == "ask" && !msg.is_empty() => cmd_ask(to, msg),
         [cmd, to, rest @ ..] if cmd == "ask" => cmd_ask(to, &rest.join(" ")),
+        [cmd, to, msg] if cmd == "reply" && !msg.is_empty() => cmd_reply(to, msg),
+        [cmd, to, rest @ ..] if cmd == "reply" => cmd_reply(to, &rest.join(" ")),
         [cmd, rest @ ..] if cmd == "note" => {
             let mut to: Option<String> = None;
             let mut mode = "append".to_string();

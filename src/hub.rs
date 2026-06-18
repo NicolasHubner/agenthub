@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
 use serde_json;
 use parking_lot::RwLock;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, oneshot, Mutex};
 
 use crate::protocol::{AgentSnapshot, ClientMessage, ServerMessage, SubagentSnapshot};
 
@@ -39,6 +39,7 @@ pub struct Hub {
     edges: Arc<RwLock<HashSet<(String, String)>>>,
     event_log: Arc<Mutex<VecDeque<ServerMessage>>>,
     notify: broadcast::Sender<String>,
+    pending_replies: Arc<parking_lot::Mutex<HashMap<(String, String), VecDeque<oneshot::Sender<String>>>>>,
 }
 
 impl Hub {
@@ -50,6 +51,7 @@ impl Hub {
             edges: Arc::new(RwLock::new(HashSet::new())),
             event_log: Arc::new(Mutex::new(VecDeque::new())),
             notify,
+            pending_replies: Arc::new(parking_lot::Mutex::new(HashMap::new())),
         }
     }
 
@@ -144,7 +146,29 @@ impl Hub {
         ws_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
         pty_in: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
     ) -> Result<(), ServerMessage> {
-        if self.agents.contains_key(&name) {
+        if let Some(existing) = self.agents.get(&name) {
+            let conflict = existing
+                .pty_in
+                .as_ref()
+                .map(|tx| !tx.is_closed())
+                .unwrap_or(false);
+            if conflict {
+                let warn_old = format!(
+                    "\r\n\x1b[33m⚠  [agenthub] conflito: nova conexão registrou \"{}\" — este terminal foi desconectado do hub\x1b[0m\r\n",
+                    name
+                );
+                if let Some(tx) = &existing.pty_in {
+                    let _ = tx.send(warn_old.into_bytes());
+                }
+                if let Some(tx) = &pty_in {
+                    let warn_new = format!(
+                        "\r\n\x1b[33m⚠  [agenthub] \"{}\" já estava conectado em outro terminal — tomando controle\x1b[0m\r\n",
+                        name
+                    );
+                    let _ = tx.send(warn_new.into_bytes());
+                }
+            }
+            drop(existing);
             self.unregister(&name);
         }
         self.agents.insert(
@@ -265,6 +289,40 @@ impl Hub {
         };
         self.broadcast(&ev);
         Ok(())
+    }
+
+    pub fn route_msg_with_reply(
+        &self,
+        from: &str,
+        to: &str,
+        content: &str,
+        tx: oneshot::Sender<String>,
+    ) -> Result<(), ServerMessage> {
+        self.route_msg(from, to, content)?;
+        self.pending_replies
+            .lock()
+            .entry((from.to_string(), to.to_string()))
+            .or_default()
+            .push_back(tx);
+        Ok(())
+    }
+
+    pub fn deliver_reply(&self, from: &str, to: &str, content: &str) -> Result<(), ServerMessage> {
+        let mut pending = self.pending_replies.lock();
+        let key = (to.to_string(), from.to_string());
+        if let Some(queue) = pending.get_mut(&key) {
+            if let Some(tx) = queue.pop_front() {
+                let _ = tx.send(content.to_string());
+                if queue.is_empty() {
+                    pending.remove(&key);
+                }
+                return Ok(());
+            }
+        }
+        Err(ServerMessage::Error {
+            reason: "no pending request from that agent".into(),
+            to: None,
+        })
     }
 
     fn deliver(&self, entry: &AgentEntry, msg: &ServerMessage) {

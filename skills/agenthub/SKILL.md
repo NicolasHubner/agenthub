@@ -22,18 +22,45 @@ agenthub-cli list
 # Who can I message from this terminal?
 agenthub-cli peers
 
-# Send a message (target must be linked in UI)
+# Send a task and WAIT for reply (blocks until child calls reply)
 agenthub-cli ask terminal-2 "Review src/main.rs and suggest fixes"
+# → prints the reply when terminal-2 responds
+# → times out after 5 minutes with error
+
+# Reply to a parent waiting on you
+agenthub-cli reply terminal-1 "done: found 3 issues, fixed 2"
 ```
 
 `AGENTHUB_NAME` is set automatically inside UI terminals. Outside UI, export it to match the terminal name shown in the canvas.
 
 ## Workflow (Maestri-style)
 
-1. Confirm link exists: `agenthub-cli peers`
-2. Send explicit prompt: `agenthub-cli ask <peer> "<task>"`
-3. Peer sees message injected into its terminal as: `[from-name]: <task>`
-4. Do **not** paste the other agent's live stdout — use `ask` only when the user requests coordination
+### Single parent → child
+1. Parent confirms link: `agenthub-cli peers`
+2. Parent sends task: `agenthub-cli ask <child> "<task>"` — **blocks**
+3. Child sees `[parent-name]: <task>` injected in terminal, executes task
+4. Child signals done: `agenthub-cli reply <parent> "<result>"`
+5. Parent's `ask` unblocks and prints the result
+
+### Multi-child orchestration
+Parent sends tasks to multiple children, each in a background subshell:
+```bash
+result_a=$(agenthub-cli ask agent-a "analyze auth module") &
+result_b=$(agenthub-cli ask agent-b "analyze data module") &
+wait
+echo "a: $result_a"
+echo "b: $result_b"
+```
+Children orchestrate among themselves the same way — any agent can `ask` any linked peer and `reply` to unblock them.
+
+### Child responsibility
+When a message arrives, always end execution with:
+```bash
+agenthub-cli reply <sender> "<summary of what was done>"
+```
+Without a reply, the parent times out after 5 minutes.
+
+4. Do **not** paste the other agent's live stdout — use `ask`/`reply` only when the user requests coordination
 
 ## Style
 
@@ -95,5 +122,7 @@ agenthub-cli note --to "Research Notes" "ref: RFC 7234 seção 3"
 | `no edge between agents` | Link terminals in canvas (drag ●) |
 | `agent not connected` | Target terminal closed — reopen in UI |
 | `AGENTHUB_NAME not set` | Not an AgentHub terminal |
+| `no pending request from that agent` | `reply` called but no `ask` waiting; check sender name |
+| `timeout: no reply within 5 minutes` | Child never called `reply` — add it to child workflow |
 
 Hub URL: `AGENTHUB_URL` or `http://127.0.0.1:3000`

@@ -119,7 +119,28 @@ async fn post_msg(
     State(state): State<AppState>,
     Json(body): Json<MsgBody>,
 ) -> Response {
-    match state.hub.route_msg(&body.from, &body.to, &body.content) {
+    if body.awaiting_reply {
+        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+        if let Err(err) = state.hub.route_msg_with_reply(&body.from, &body.to, &body.content, tx) {
+            return (StatusCode::BAD_REQUEST, Json(err)).into_response();
+        }
+        match tokio::time::timeout(std::time::Duration::from_secs(300), rx).await {
+            Ok(Ok(reply)) => Json(serde_json::json!({"reply": reply})).into_response(),
+            _ => StatusCode::REQUEST_TIMEOUT.into_response(),
+        }
+    } else {
+        match state.hub.route_msg(&body.from, &body.to, &body.content) {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(err) => (StatusCode::BAD_REQUEST, Json(err)).into_response(),
+        }
+    }
+}
+
+async fn post_reply(
+    State(state): State<AppState>,
+    Json(body): Json<ReplyBody>,
+) -> Response {
+    match state.hub.deliver_reply(&body.from, &body.to, &body.content) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(err) => (StatusCode::BAD_REQUEST, Json(err)).into_response(),
     }
@@ -127,6 +148,15 @@ async fn post_msg(
 
 #[derive(Deserialize)]
 struct MsgBody {
+    from: String,
+    to: String,
+    content: String,
+    #[serde(default)]
+    awaiting_reply: bool,
+}
+
+#[derive(Deserialize)]
+struct ReplyBody {
     from: String,
     to: String,
     content: String,
@@ -190,6 +220,7 @@ pub fn app_router(workspace: SharedWorkspace, hub: SharedHub, sessions: Arc<Sess
     Router::new()
         .route("/state", get(get_state))
         .route("/msg", post(post_msg))
+        .route("/reply", post(post_reply))
         .route("/note", post(post_note))
         .route("/subagents", post(post_subagent))
         .route("/sessions", get(get_sessions).put(put_sessions))
