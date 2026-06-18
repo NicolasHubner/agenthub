@@ -225,8 +225,8 @@ body {
 .edge-cable {
   fill: none; stroke: #9ca3af; stroke-width: 2.5;
   stroke-dasharray: 8 6; stroke-linecap: round;
-  pointer-events: stroke;
 }
+.edge-cable:not(.drafting) { pointer-events: stroke; }
 .edge-cable:not(.drafting):hover { stroke: #ef4444; stroke-width: 4; }
 .edge-cable.drafting { stroke: #6b7280; opacity: .7; }
 .edge-cable.widget-edge { stroke: #a78bfa; stroke-dasharray: 6 4; }
