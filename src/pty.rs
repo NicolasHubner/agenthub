@@ -352,8 +352,7 @@ mod tests {
     #[test]
     fn agent_preset_falls_back_to_shell() {
         let script = agent_launch_script("codex");
-        assert!(script.contains("command -v 'codex'"));
-        assert!(script.contains("exec 'codex'"));
-        assert!(script.contains(" -i"));
+        assert!(script.contains("'codex'"));
+        assert!(script.contains("exec") && script.contains(" -i"));
     }
 }

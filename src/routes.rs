@@ -26,8 +26,8 @@ pub struct ActiveWorkspace {
 
 impl ActiveWorkspace {
     /// First folder — the default cwd / single-folder convenience.
-    pub fn primary(&self) -> Arc<Workspace> {
-        self.folders[0].clone()
+    pub fn primary(&self) -> Option<Arc<Workspace>> {
+        self.folders.first().cloned()
     }
 
     /// Folder whose canonical root matches `root` (as returned by root_display()).
@@ -85,7 +85,7 @@ async fn get_sessions(State(state): State<AppState>) -> Json<serde_json::Value> 
     let active = state.active.read().unwrap();
     let snap = active.sessions.get();
     Json(json!({
-        "workspace": active.primary().root_display(),
+        "workspace": active.primary().as_deref().map(|w| w.root_display()),
         "terminals": snap.terminals,
         "widgets": snap.widgets,
         "edges": snap.edges,
@@ -113,7 +113,7 @@ async fn put_sessions(
 }
 
 async fn get_files(State(state): State<AppState>) -> Response {
-    let ws = state.active.read().unwrap().primary();
+    let ws = state.active.read().unwrap().primary().expect("no workspace folders configured");
     Json(json!({ "files": ws.list_files() })).into_response()
 }
 
@@ -126,7 +126,7 @@ async fn get_file(
     State(state): State<AppState>,
     Query(q): Query<FileQuery>,
 ) -> Result<Json<crate::workspace::FileContent>, ApiError> {
-    let ws = state.active.read().unwrap().primary();
+    let ws = state.active.read().unwrap().primary().expect("no workspace folders configured");
     Ok(Json(ws.read_file(&q.path)?))
 }
 
