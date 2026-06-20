@@ -90,6 +90,71 @@ async fn traversal_is_forbidden() {
 }
 
 #[tokio::test]
+async fn browse_returns_home() {
+    let app = api_router(ws());
+    let resp = app
+        .oneshot(Request::builder().uri("/browse").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let text = body_string(resp).await;
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert!(!v["path"].as_str().unwrap_or("").is_empty());
+}
+
+#[tokio::test]
+async fn browse_lists_subdirs() {
+    let base = std::env::temp_dir().join(format!("agenthub-browse-sub-{}", std::process::id()));
+    fs::create_dir_all(base.join("mysubdir")).unwrap();
+    fs::write(base.join("somefile.txt"), "x").unwrap();
+    let app = api_router(ws());
+    let canon = base.canonicalize().unwrap();
+    let uri = format!("/browse?path={}", urlencoding(&canon.display().to_string()));
+    let resp = app
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let text = body_string(resp).await;
+    assert!(text.contains("\"mysubdir\""), "expected mysubdir in: {text}");
+    assert!(!text.contains("somefile.txt"), "files should be excluded: {text}");
+}
+
+#[tokio::test]
+async fn browse_hides_dotfiles() {
+    let base =
+        std::env::temp_dir().join(format!("agenthub-browse-dot-{}", std::process::id()));
+    fs::create_dir_all(base.join(".hidden")).unwrap();
+    fs::create_dir_all(base.join("visible")).unwrap();
+    let app = api_router(ws());
+    let canon = base.canonicalize().unwrap();
+    let uri = format!("/browse?path={}", urlencoding(&canon.display().to_string()));
+    let resp = app
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let text = body_string(resp).await;
+    assert!(!text.contains("\".hidden\""), "dotdir should be hidden: {text}");
+    assert!(text.contains("\"visible\""), "visible dir should appear: {text}");
+}
+
+#[tokio::test]
+async fn browse_nonexistent_returns_404() {
+    let app = api_router(ws());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/browse?path=/nonexistent/xyz/agenthub-missing")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn put_file_saves_content() {
     let w = ws();
     let root = w.root_display();

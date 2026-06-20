@@ -263,6 +263,47 @@ struct SubagentBody {
     status: String,
 }
 
+#[derive(Deserialize)]
+struct BrowseQuery {
+    #[serde(default)]
+    path: String,
+}
+
+async fn get_browse(Query(q): Query<BrowseQuery>) -> Result<Json<serde_json::Value>, ApiError> {
+    let base = if q.path.is_empty() {
+        crate::registry::home_dir()
+    } else {
+        std::path::PathBuf::from(&q.path)
+    };
+    let dir = base
+        .canonicalize()
+        .map_err(|_| ApiError(StatusCode::NOT_FOUND, "no such directory"))?;
+    if !dir.is_dir() {
+        return Err(ApiError(StatusCode::NOT_FOUND, "not a directory"));
+    }
+    let mut entries: Vec<serde_json::Value> = std::fs::read_dir(&dir)
+        .map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "io error"))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            (!name.starts_with('.')).then(|| json!({ "name": name, "dir": true }))
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        a["name"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["name"].as_str().unwrap_or(""))
+    });
+    let parent = dir.parent().map(|p| p.display().to_string());
+    Ok(Json(json!({
+        "path": dir.display().to_string(),
+        "parent": parent,
+        "entries": entries,
+    })))
+}
+
 async fn pty_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
         let hub = state.hub.clone();
@@ -284,6 +325,7 @@ pub fn app_router(active: SharedActive, hub: SharedHub) -> Router {
         .route("/sessions", get(get_sessions).put(put_sessions))
         .route("/files", get(get_files))
         .route("/file", get(get_file).put(put_file))
+        .route("/browse", get(get_browse))
         .route("/ws", get(ws_upgrade))
         .route("/ws/pty", get(pty_upgrade))
         .with_state(state)
