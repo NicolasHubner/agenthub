@@ -13,6 +13,7 @@ use serde_json::json;
 
 use crate::hub::{Hub, SharedHub};
 use crate::pty::handle_pty_socket;
+use crate::registry::{Registry, WorkspaceEntry, workspace_state_dir};
 use crate::sessions::{SessionSnapshot, SessionStore};
 use crate::workspace::{Workspace, WorkspaceError};
 
@@ -52,6 +53,32 @@ impl ActiveWorkspace {
 pub struct AppState {
     pub active: SharedActive,
     pub hub: SharedHub,
+    pub registry: Arc<Registry>,
+}
+
+/// Build the in-memory active workspace from a registry entry.
+pub fn build_active(entry: &WorkspaceEntry) -> ActiveWorkspace {
+    let folders: Vec<Arc<Workspace>> = entry
+        .folders
+        .iter()
+        .filter_map(|dir| Workspace::new(dir).ok().map(Arc::new))
+        .collect();
+
+    let state_dir = workspace_state_dir(&entry.id);
+    let _ = std::fs::create_dir_all(&state_dir);
+    // One-time migration: if no global sessions yet, import the legacy
+    // per-directory file from the first folder.
+    let global = state_dir.join("sessions.json");
+    if !global.exists() {
+        if let Some(first) = entry.folders.first() {
+            let legacy = std::path::Path::new(first).join(".agenthub").join("sessions.json");
+            if legacy.exists() {
+                let _ = std::fs::copy(&legacy, &global);
+            }
+        }
+    }
+    let sessions = Arc::new(SessionStore::new_in(&state_dir));
+    ActiveWorkspace { id: entry.id.clone(), folders, sessions }
 }
 
 struct ApiError(StatusCode, &'static str);
@@ -82,10 +109,15 @@ async fn get_state(State(state): State<AppState>) -> Json<serde_json::Value> {
 }
 
 async fn get_sessions(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let name = state
+        .registry
+        .active_entry()
+        .map(|e| e.name)
+        .unwrap_or_else(|| "Workspace".into());
     let active = state.active.read().unwrap();
     let snap = active.sessions.get();
     Json(json!({
-        "workspace": active.primary().as_deref().map(|w| w.root_display()),
+        "workspace": name,
         "terminals": snap.terminals,
         "widgets": snap.widgets,
         "edges": snap.edges,
@@ -314,8 +346,8 @@ async fn pty_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> imp
     })
 }
 
-pub fn app_router(active: SharedActive, hub: SharedHub) -> Router {
-    let state = AppState { active, hub };
+pub fn app_router(active: SharedActive, hub: SharedHub, registry: Arc<Registry>) -> Router {
+    let state = AppState { active, hub, registry };
     Router::new()
         .route("/state", get(get_state))
         .route("/msg", post(post_msg))
@@ -333,11 +365,16 @@ pub fn app_router(active: SharedActive, hub: SharedHub) -> Router {
 
 /// Test/helper constructor: one workspace folder, sessions under its root.
 pub fn api_router(ws: Arc<Workspace>) -> Router {
+    let root = ws.root_display();
     let sessions = Arc::new(SessionStore::new(ws.root()));
     let active = Arc::new(RwLock::new(ActiveWorkspace {
         id: "ws-01".into(),
         folders: vec![ws],
         sessions,
     }));
-    app_router(active, Arc::new(Hub::new()))
+    let registry = Arc::new(Registry::open(
+        std::env::temp_dir().join(format!("agenthub-reg-test-{}.json", std::process::id())),
+    ));
+    registry.seed_if_empty(std::path::Path::new(&root));
+    app_router(active, Arc::new(Hub::new()), registry)
 }
