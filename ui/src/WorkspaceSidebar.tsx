@@ -4,6 +4,7 @@ import type { CanvasWidget, TerminalSession } from "./sessions";
 import { presetById } from "./sessions";
 import type { SubagentSnapshot } from "./hub";
 import type { FolderFiles } from "./api";
+import type { WorkspaceEntry } from "./workspaces";
 
 export type CanvasItem =
   | { type: "terminal"; id: string; label: string; icon: string; color: string }
@@ -20,6 +21,10 @@ type Props = {
   folders: FolderFiles[];
   onOpenFile: (root: string, path: string) => void;
   subagents?: SubagentSnapshot[];
+  workspaces: WorkspaceEntry[];
+  activeId: string;
+  onSwitchWorkspace: (id: string) => void;
+  onNewWorkspace: () => void;
 };
 
 const WIDGET_TOOLS: { kind: CanvasWidget["kind"]; icon: string; label: string }[] = [
@@ -39,6 +44,10 @@ export function WorkspaceSidebar({
   folders,
   onOpenFile,
   subagents = [],
+  workspaces,
+  activeId,
+  onSwitchWorkspace,
+  onNewWorkspace,
 }: Props) {
   const [filesOpen, setFilesOpen] = useState(false);
   const terminals = items.filter((i) => i.type === "terminal");
@@ -50,15 +59,24 @@ export function WorkspaceSidebar({
         <span className="ws-sidebar-label">Workspaces</span>
       </div>
 
-      <div className="ws-active">
-        <span className="ws-dot" />
-        <div className="ws-active-info">
-          <strong>{workspaceName}</strong>
-          <span className="ws-cwd" title={cwd}>
-            {cwd.split("/").slice(-2).join("/") || cwd}
-          </span>
-        </div>
-        <span className="ws-count">{items.length}</span>
+      <div className="ws-list">
+        {workspaces.map((w) => (
+          <button
+            key={w.id}
+            type="button"
+            className={`ws-active${w.id === activeId ? " current" : ""}`}
+            onClick={() => onSwitchWorkspace(w.id)}
+            title={w.folders.join("\n")}
+          >
+            <span className="ws-dot" />
+            <div className="ws-active-info">
+              <strong>{w.name}</strong>
+              <span className="ws-cwd">{w.folders.length} folder{w.folders.length === 1 ? "" : "s"}</span>
+            </div>
+            {w.id === activeId && <span className="ws-count">{items.length}</span>}
+          </button>
+        ))}
+        <button type="button" className="ws-new" onClick={onNewWorkspace}>+ New workspace</button>
       </div>
 
       <div className="ws-section">

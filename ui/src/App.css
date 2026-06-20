@@ -450,3 +450,12 @@ body {
 .viewer.empty { color: #888; }
 .viewer pre { white-space: pre-wrap; }
 .error { color: #c00; }
+
+/* ── Workspace switcher ── */
+.ws-list { display: flex; flex-direction: column; gap: 4px; padding: 8px; }
+.ws-active { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: none; border: 1px solid transparent; border-radius: 6px; padding: 6px 8px;
+  cursor: pointer; color: inherit; }
+.ws-active.current { background: rgba(189,147,249,0.12); border-color: #bd93f9; }
+.ws-new { background: none; border: 1px dashed #44475a; border-radius: 6px; padding: 6px 8px;
+  color: #8be9fd; cursor: pointer; font-size: 12px; }
