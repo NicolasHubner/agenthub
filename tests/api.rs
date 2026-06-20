@@ -19,27 +19,42 @@ async fn body_string(resp: axum::response::Response) -> String {
     String::from_utf8(bytes.to_vec()).unwrap()
 }
 
+// Minimal percent-encoder for the few chars in a temp path query value.
+fn urlencoding(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{:02X}", b),
+        })
+        .collect()
+}
+
 #[tokio::test]
-async fn files_endpoint_lists_files() {
-    let app = api_router(ws());
+async fn files_endpoint_groups_by_folder() {
+    let w = ws();
+    let root = w.root_display();
+    let app = api_router(w);
     let resp = app
         .oneshot(Request::builder().uri("/files").body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
-    assert!(body_string(resp).await.contains("docs/a.md"));
+    let text = body_string(resp).await;
+    assert!(text.contains("\"folders\""));
+    assert!(text.contains("docs/a.md"));
+    assert!(text.contains(&root));
 }
 
 #[tokio::test]
 async fn file_endpoint_returns_content() {
-    let app = api_router(ws());
+    let w = ws();
+    let root = w.root_display();
+    let app = api_router(w);
+    let uri = format!("/file?root={}&path=docs/a.md", urlencoding(&root));
     let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/file?path=docs/a.md")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -47,15 +62,28 @@ async fn file_endpoint_returns_content() {
 }
 
 #[tokio::test]
-async fn traversal_is_forbidden() {
+async fn unknown_root_is_forbidden() {
     let app = api_router(ws());
     let resp = app
         .oneshot(
             Request::builder()
-                .uri("/file?path=../../etc/passwd")
+                .uri("/file?root=/nope&path=docs/a.md")
                 .body(Body::empty())
                 .unwrap(),
         )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn traversal_is_forbidden() {
+    let w = ws();
+    let root = w.root_display();
+    let app = api_router(w);
+    let uri = format!("/file?root={}&path=../../etc/passwd", urlencoding(&root));
+    let resp = app
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert!(matches!(resp.status(), StatusCode::FORBIDDEN | StatusCode::NOT_FOUND));

@@ -113,12 +113,25 @@ async fn put_sessions(
 }
 
 async fn get_files(State(state): State<AppState>) -> Response {
-    let ws = state.active.read().unwrap().primary().expect("no workspace folders configured");
-    Json(json!({ "files": ws.list_files() })).into_response()
+    let active = state.active.read().unwrap();
+    let folders: Vec<serde_json::Value> = active
+        .folders
+        .iter()
+        .map(|w| {
+            let root = w.root_display();
+            let name = std::path::Path::new(&root)
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| root.clone());
+            json!({ "name": name, "root": root, "files": w.list_files() })
+        })
+        .collect();
+    Json(json!({ "folders": folders })).into_response()
 }
 
 #[derive(Deserialize)]
 struct FileQuery {
+    root: String,
     path: String,
 }
 
@@ -126,7 +139,12 @@ async fn get_file(
     State(state): State<AppState>,
     Query(q): Query<FileQuery>,
 ) -> Result<Json<crate::workspace::FileContent>, ApiError> {
-    let ws = state.active.read().unwrap().primary().expect("no workspace folders configured");
+    let ws = state
+        .active
+        .read()
+        .unwrap()
+        .folder(&q.root)
+        .ok_or(ApiError(StatusCode::FORBIDDEN, "unknown folder"))?;
     Ok(Json(ws.read_file(&q.path)?))
 }
 
