@@ -3,6 +3,7 @@ import { FileTree } from "./FileTree";
 import type { CanvasWidget, TerminalSession } from "./sessions";
 import { presetById } from "./sessions";
 import type { SubagentSnapshot } from "./hub";
+import type { FolderFiles } from "./api";
 
 export type CanvasItem =
   | { type: "terminal"; id: string; label: string; icon: string; color: string }
@@ -16,8 +17,8 @@ type Props = {
   onSelect: (id: string) => void;
   onAddWidget: (kind: CanvasWidget["kind"]) => void;
   onAddTerminal: () => void;
-  files: string[];
-  onOpenFile: (path: string) => void;
+  folders: FolderFiles[];
+  onOpenFile: (root: string, path: string) => void;
   subagents?: SubagentSnapshot[];
 };
 
@@ -35,7 +36,7 @@ export function WorkspaceSidebar({
   onSelect,
   onAddWidget,
   onAddTerminal,
-  files,
+  folders,
   onOpenFile,
   subagents = [],
 }: Props) {
@@ -144,7 +145,7 @@ export function WorkspaceSidebar({
         <p className="ws-empty">Add a note or agent from above</p>
       )}
 
-      {files.length > 0 && (
+      {folders.length > 0 && (
         <div className="ws-section ws-files-section">
           <button
             type="button"
@@ -156,7 +157,7 @@ export function WorkspaceSidebar({
           </button>
           {filesOpen && (
             <div className="ws-file-tree">
-              <FileTree files={files} onSelect={onOpenFile} />
+              <FileTree folders={folders} onSelect={onOpenFile} />
             </div>
           )}
         </div>

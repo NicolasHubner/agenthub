@@ -3,11 +3,14 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { FileTree } from "./FileTree";
 
 describe("FileTree", () => {
-  it("renders file names and fires onSelect with the path", () => {
+  it("renders file names and fires onSelect with root and path", () => {
     const onSelect = vi.fn();
-    render(<FileTree files={["docs/a.md", "main.rs"]} onSelect={onSelect} />);
+    const folders = [
+      { name: "project", root: "/home/user/project", files: ["docs/a.md", "main.rs"] },
+    ];
+    render(<FileTree folders={folders} onSelect={onSelect} />);
     expect(screen.getByText("main.rs")).toBeInTheDocument();
     fireEvent.click(screen.getByText("main.rs"));
-    expect(onSelect).toHaveBeenCalledWith("main.rs");
+    expect(onSelect).toHaveBeenCalledWith("/home/user/project", "main.rs");
   });
 });

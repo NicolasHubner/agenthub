@@ -41,6 +41,7 @@ import {
   type WidgetKind,
 } from "./sessions";
 import { buildCanvasItems, WorkspaceSidebar } from "./WorkspaceSidebar";
+import type { FolderFiles } from "./api";
 
 let nextId = 1;
 let nextWidgetId = 1;
@@ -97,11 +98,11 @@ function allRects(nodes: NodeModel[], widgets: WidgetModel[]): Rect[] {
 }
 
 interface AgentCanvasProps {
-  files: string[];
-  onOpenFile: (path: string) => void;
+  folders: FolderFiles[];
+  onOpenFile: (root: string, path: string) => void;
 }
 
-export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
+export function AgentCanvas({ folders, onOpenFile }: AgentCanvasProps) {
   const hubRef = useRef<HubConnection | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [nodes, setNodes] = useState<NodeModel[]>([]);
@@ -116,6 +117,7 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
   widgetEdgesRef.current = widgetEdges;
   const [subagents, setSubagents] = useState<SubagentSnapshot[]>([]);
   const [pendingEdges, setPendingEdges] = useState<[string, string][]>([]);
+  const savedEdgesRef = useRef<[string, string][]>([]);
   const [status, setStatus] = useState<"open" | "closed" | "error">("closed");
   const [connectError, setConnectError] = useState<string | null>(null);
   const [linkFrom, setLinkFrom] = useState<string | null>(null);
@@ -174,7 +176,7 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
           }, 0);
           nextWidgetId = maxW + 1;
         }
-        if (data.edges) setPendingEdges(data.edges);
+        if (data.edges) { setPendingEdges(data.edges); savedEdgesRef.current = data.edges; }
         if (data.widgetEdges?.length) setWidgetEdges(data.widgetEdges);
         if (data.view) setView(data.view);
       })
@@ -189,6 +191,15 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
           setEdges(ev.edges);
           setSubagents(ev.subagents ?? []);
           setConnectError(null);
+          // Retry any saved edges not yet established (agents may not have registered yet)
+          const ws = hubRef.current?.ws;
+          if (ws && ws.readyState === WebSocket.OPEN && savedEdgesRef.current.length > 0) {
+            const missing = savedEdgesRef.current.filter(
+              ([a, b]) => !ev.edges.some(([ea, eb]) => (ea === a && eb === b) || (ea === b && eb === a)),
+            );
+            if (missing.length > 0) missing.forEach(([a, b]) => hubConnect(ws, a, b));
+            else savedEdgesRef.current = [];
+          }
         } else if (ev.type === "error") {
           setConnectError(ev.reason);
         } else if (ev.type === "widget_update") {
@@ -620,7 +631,7 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
           onSelect={focusItem}
           onAddWidget={(kind) => addWidget(kind)}
           onAddTerminal={() => addTerminal(presetById("bash"))}
-          files={files}
+          folders={folders}
           onOpenFile={onOpenFile}
           subagents={subagents}
         />
@@ -666,8 +677,9 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
                   const na = nodes.find((n) => n.name === a);
                   const nb = nodes.find((n) => n.name === b);
                   if (!na || !nb) return null;
-                  const p1 = portFor(na, "out");
-                  const p2 = portFor(nb, "in");
+                  const [left, right] = na.x <= nb.x ? [na, nb] : [nb, na];
+                  const p1 = portFor(left, "out");
+                  const p2 = portFor(right, "in");
                   return (
                     <path
                       key={`${a}-${b}`}
@@ -721,23 +733,34 @@ export function AgentCanvas({ files, onOpenFile }: AgentCanvasProps) {
                 />
               ))}
 
-              {nodes.map((node) => (
-                <TerminalNode
-                  key={node.id}
-                  node={node}
-                  preset={presetById(node.preset)}
-                  zoom={view.zoom}
-                  screenToCanvas={toCanvas}
-                  onMove={moveNode}
-                  onResize={resizeNode}
-                  onRemove={removeNode}
-                  onPortMouseDown={startLink}
-                  onPortMouseUp={finishLink}
-                  linking={!!linkFrom}
-                  spaceHeld={spaceHeld}
-                  selected={selectedId === node.id}
-                />
-              ))}
+              {nodes.map((node) => {
+                const ws = hubRef.current?.ws;
+                const nodeConnections = edges
+                  .filter(([a, b]) => a === node.name || b === node.name)
+                  .map(([a, b]) => (a === node.name ? b : a));
+                return (
+                  <TerminalNode
+                    key={node.id}
+                    node={node}
+                    preset={presetById(node.preset)}
+                    zoom={view.zoom}
+                    screenToCanvas={toCanvas}
+                    onMove={moveNode}
+                    onResize={resizeNode}
+                    onRemove={removeNode}
+                    onPortMouseDown={startLink}
+                    onPortMouseUp={finishLink}
+                    connections={nodeConnections}
+                    onDisconnect={(otherName) => {
+                      if (ws && ws.readyState === WebSocket.OPEN)
+                        hubDisconnect(ws, node.name, otherName);
+                    }}
+                    linking={!!linkFrom}
+                    spaceHeld={spaceHeld}
+                    selected={selectedId === node.id}
+                  />
+                );
+              })}
             </div>
           </div>
 

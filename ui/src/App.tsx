@@ -1,19 +1,26 @@
 import { useEffect, useState } from "react";
-import { getFiles, getFile, type FileContent } from "./api";
+import { getFolders, getFile, type FolderFiles } from "./api";
 import { AgentCanvas } from "./AgentCanvas";
-import { Viewer } from "./Viewer";
+import { Editor } from "./Editor";
+
+interface OpenFile {
+  root: string;
+  path: string;
+  content: string;
+}
 
 export function App() {
-  const [files, setFiles] = useState<string[]>([]);
-  const [selected, setSelected] = useState<FileContent | null>(null);
+  const [folders, setFolders] = useState<FolderFiles[]>([]);
+  const [openFile, setOpenFile] = useState<OpenFile | null>(null);
 
   useEffect(() => {
-    getFiles().then(setFiles).catch(() => {});
+    getFolders().then(setFolders).catch(() => {});
   }, []);
 
-  async function openFile(path: string) {
+  async function handleOpenFile(root: string, path: string) {
     try {
-      setSelected(await getFile(path));
+      const { content } = await getFile(root, path);
+      setOpenFile({ root, path, content });
     } catch {
       // ignore
     }
@@ -21,26 +28,14 @@ export function App() {
 
   return (
     <div className="layout">
-      <AgentCanvas files={files} onOpenFile={openFile} />
-      {selected && (
-        <div className="file-drawer">
-          <div className="file-drawer-header">
-            <span className="file-drawer-path" title={selected.path}>
-              {selected.path}
-            </span>
-            <button
-              type="button"
-              className="file-drawer-close"
-              onClick={() => setSelected(null)}
-              aria-label="Close file viewer"
-            >
-              ✕
-            </button>
-          </div>
-          <div className="file-drawer-body">
-            <Viewer file={selected} />
-          </div>
-        </div>
+      <AgentCanvas folders={folders} onOpenFile={handleOpenFile} />
+      {openFile && (
+        <Editor
+          root={openFile.root}
+          path={openFile.path}
+          content={openFile.content}
+          onClose={() => setOpenFile(null)}
+        />
       )}
     </div>
   );
