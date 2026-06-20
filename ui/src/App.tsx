@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { getFolders, getFile, type FolderFiles } from "./api";
+import { useState } from "react";
+import { getFile } from "./api";
 import { AgentCanvas } from "./AgentCanvas";
 import { Editor } from "./Editor";
 
@@ -10,12 +10,7 @@ interface OpenFile {
 }
 
 export function App() {
-  const [folders, setFolders] = useState<FolderFiles[]>([]);
   const [openFile, setOpenFile] = useState<OpenFile | null>(null);
-
-  useEffect(() => {
-    getFolders().then(setFolders).catch(() => {});
-  }, []);
 
   async function handleOpenFile(root: string, path: string) {
     try {
@@ -28,7 +23,7 @@ export function App() {
 
   return (
     <div className="layout">
-      <AgentCanvas folders={folders} onOpenFile={handleOpenFile} />
+      <AgentCanvas onOpenFile={handleOpenFile} />
       {openFile && (
         <Editor
           root={openFile.root}

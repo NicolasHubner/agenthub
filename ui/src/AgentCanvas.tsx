@@ -41,7 +41,7 @@ import {
   type WidgetKind,
 } from "./sessions";
 import { buildCanvasItems, WorkspaceSidebar } from "./WorkspaceSidebar";
-import type { FolderFiles } from "./api";
+import { getFolders, type FolderFiles } from "./api";
 import {
   listWorkspaces,
   switchWorkspace,
@@ -106,11 +106,10 @@ function allRects(nodes: NodeModel[], widgets: WidgetModel[]): Rect[] {
 }
 
 interface AgentCanvasProps {
-  folders: FolderFiles[];
   onOpenFile: (root: string, path: string) => void;
 }
 
-export function AgentCanvas({ folders, onOpenFile }: AgentCanvasProps) {
+export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
   const hubRef = useRef<HubConnection | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [nodes, setNodes] = useState<NodeModel[]>([]);
@@ -140,6 +139,7 @@ export function AgentCanvas({ folders, onOpenFile }: AgentCanvasProps) {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
   const [activeTool, setActiveTool] = useState<CanvasTool>("select");
+  const [folders, setFolders] = useState<FolderFiles[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
@@ -204,6 +204,7 @@ export function AgentCanvas({ folders, onOpenFile }: AgentCanvasProps) {
       if (data.view) setView(data.view);
     } catch { /* ignore */ }
     finally { setLoaded(true); }
+    getFolders().then(setFolders).catch(() => {});
   }, []);
 
   useEffect(() => { void reload(); void loadWorkspaces(); }, [reload, loadWorkspaces]);
