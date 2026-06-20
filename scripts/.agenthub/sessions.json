@@ -1,0 +1,23 @@
+{
+  "terminals": [
+    {
+      "id": "node-5",
+      "name": "lima",
+      "command": "claude",
+      "cwd": "/home/nicolas/agenthub/scripts",
+      "preset": "claude",
+      "x": 80.0,
+      "y": 80.0,
+      "width": 1036.0,
+      "height": 661.0
+    }
+  ],
+  "widgets": [],
+  "edges": [],
+  "widgetEdges": [],
+  "view": {
+    "x": 48.0,
+    "y": 48.0,
+    "zoom": 1.0
+  }
+}
