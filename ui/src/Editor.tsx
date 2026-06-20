@@ -49,6 +49,13 @@ export function Editor({ root, path, content, onClose }: EditorProps) {
   }, [root, path, value, saving]);
 
   useEffect(() => {
+    setValue(content);
+    setDirty(false);
+    setError(null);
+    setPreview(false);
+  }, [content, path]);
+
+  useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
