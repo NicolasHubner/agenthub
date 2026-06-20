@@ -87,6 +87,20 @@ impl Workspace {
         })
     }
 
+    /// Overwrite an existing workspace file with UTF-8 text. Edit-only: the
+    /// target must already exist inside the root (resolve() enforces both).
+    pub fn write_file(&self, rel: &str, content: &str) -> Result<(), WorkspaceError> {
+        if content.len() as u64 > MAX_FILE_BYTES {
+            return Err(WorkspaceError::TooLarge);
+        }
+        let abs = self.resolve(rel)?; // canonicalizes, rejects traversal + missing
+        let meta = std::fs::metadata(&abs).map_err(WorkspaceError::Io)?;
+        if !meta.is_file() {
+            return Err(WorkspaceError::NotFound);
+        }
+        std::fs::write(&abs, content).map_err(WorkspaceError::Io)
+    }
+
     pub fn resolve(&self, rel: &str) -> Result<PathBuf, WorkspaceError> {
         // Reject absolute inputs outright; everything must be relative to root.
         if Path::new(rel).is_absolute() {
@@ -220,5 +234,31 @@ mod tests {
         fs::write(root.join("bin.dat"), [0u8, 159, 146, 150]).unwrap(); // invalid UTF-8
         let ws = Workspace::new(&root).unwrap();
         assert!(matches!(ws.read_file("bin.dat"), Err(WorkspaceError::NotText)));
+    }
+
+    #[test]
+    fn writes_existing_file_inside_root() {
+        let root = temp_root();
+        let ws = Workspace::new(&root).unwrap();
+        ws.write_file("docs/a.md", "# changed").unwrap();
+        let back = ws.read_file("docs/a.md").unwrap();
+        assert_eq!(back.content, "# changed");
+    }
+
+    #[test]
+    fn write_rejects_traversal() {
+        let ws = Workspace::new(temp_root()).unwrap();
+        assert!(matches!(
+            ws.write_file("../../tmp/evil.txt", "x"),
+            Err(WorkspaceError::Forbidden) | Err(WorkspaceError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn write_rejects_too_large() {
+        let root = temp_root();
+        let ws = Workspace::new(&root).unwrap();
+        let big = "a".repeat(3 * 1024 * 1024); // 3 MiB > 2 MiB cap
+        assert!(matches!(ws.write_file("docs/a.md", &big), Err(WorkspaceError::TooLarge)));
     }
 }
