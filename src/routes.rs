@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use axum::{
-    extract::{Query, State, WebSocketUpgrade},
+    extract::{Path as AxPath, Query, State, WebSocketUpgrade},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -346,6 +346,108 @@ async fn pty_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> imp
     })
 }
 
+async fn get_workspaces(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let (active, list) = state.registry.snapshot();
+    Json(json!({ "active": active, "workspaces": list }))
+}
+
+#[derive(Deserialize)]
+struct CreateWsBody {
+    #[serde(default)]
+    name: Option<String>,
+    folder: String,
+}
+
+async fn post_workspace(
+    State(state): State<AppState>,
+    Json(body): Json<CreateWsBody>,
+) -> Result<Json<WorkspaceEntry>, ApiError> {
+    let ws = Workspace::new(&body.folder).map_err(|_| ApiError(StatusCode::NOT_FOUND, "no such folder"))?;
+    let entry = state.registry.create(body.name, ws.root_display());
+    *state.active.write().unwrap() = build_active(&entry);
+    Ok(Json(entry))
+}
+
+#[derive(Deserialize)]
+struct ActiveBody {
+    id: String,
+}
+
+async fn post_active(
+    State(state): State<AppState>,
+    Json(body): Json<ActiveBody>,
+) -> Result<StatusCode, ApiError> {
+    if !state.registry.set_active(&body.id) {
+        return Err(ApiError(StatusCode::NOT_FOUND, "unknown workspace"));
+    }
+    let entry = state.registry.entry(&body.id).expect("just set active");
+    *state.active.write().unwrap() = build_active(&entry);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_workspace(
+    State(state): State<AppState>,
+    AxPath(id): AxPath<String>,
+) -> StatusCode {
+    let was_active = state.registry.snapshot().0 == id;
+    state.registry.remove(&id);
+    if was_active {
+        if let Some(entry) = state.registry.active_entry() {
+            *state.active.write().unwrap() = build_active(&entry);
+        }
+    }
+    StatusCode::NO_CONTENT
+}
+
+#[derive(Deserialize)]
+struct RenameBody {
+    name: String,
+}
+
+async fn patch_workspace(
+    State(state): State<AppState>,
+    AxPath(id): AxPath<String>,
+    Json(body): Json<RenameBody>,
+) -> StatusCode {
+    state.registry.rename(&id, body.name);
+    StatusCode::NO_CONTENT
+}
+
+#[derive(Deserialize)]
+struct FolderBody {
+    dir: String,
+}
+
+async fn post_folder(
+    State(state): State<AppState>,
+    AxPath(id): AxPath<String>,
+    Json(body): Json<FolderBody>,
+) -> Result<StatusCode, ApiError> {
+    let ws = Workspace::new(&body.dir).map_err(|_| ApiError(StatusCode::NOT_FOUND, "no such folder"))?;
+    let canon = ws.root_display();
+    state.registry.add_folder(&id, canon.clone());
+    if state.registry.snapshot().0 == id {
+        let mut active = state.active.write().unwrap();
+        if active.folder(&canon).is_none() {
+            active.folders.push(Arc::new(ws));
+        }
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_folder(
+    State(state): State<AppState>,
+    AxPath(id): AxPath<String>,
+    Json(body): Json<FolderBody>,
+) -> StatusCode {
+    state.registry.remove_folder(&id, &body.dir);
+    if state.registry.snapshot().0 == id {
+        let mut active = state.active.write().unwrap();
+        active.folders.retain(|w| w.root_display() != body.dir);
+    }
+    StatusCode::NO_CONTENT
+}
+
 pub fn app_router(active: SharedActive, hub: SharedHub, registry: Arc<Registry>) -> Router {
     let state = AppState { active, hub, registry };
     Router::new()
@@ -358,6 +460,10 @@ pub fn app_router(active: SharedActive, hub: SharedHub, registry: Arc<Registry>)
         .route("/files", get(get_files))
         .route("/file", get(get_file).put(put_file))
         .route("/browse", get(get_browse))
+        .route("/workspaces", get(get_workspaces).post(post_workspace))
+        .route("/workspaces/active", post(post_active))
+        .route("/workspaces/:id", axum::routing::delete(delete_workspace).patch(patch_workspace))
+        .route("/workspaces/:id/folders", post(post_folder).delete(delete_folder))
         .route("/ws", get(ws_upgrade))
         .route("/ws/pty", get(pty_upgrade))
         .with_state(state)

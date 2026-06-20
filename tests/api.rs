@@ -180,3 +180,66 @@ async fn put_file_saves_content() {
         .unwrap();
     assert!(body_string(get).await.contains("# saved"));
 }
+
+#[tokio::test]
+async fn workspaces_list_then_create_and_switch() {
+    let app = api_router(ws());
+    // list
+    let list = app
+        .clone()
+        .oneshot(Request::builder().uri("/workspaces").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+    assert!(body_string(list).await.contains("ws-01"));
+
+    // create a second workspace pointing at a real dir
+    let dir = std::env::temp_dir().join(format!("agenthub-ws2-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let body = format!(r#"{{"folder":"{}"}}"#, dir.canonicalize().unwrap().display());
+    let created = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/workspaces")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+    assert!(body_string(created).await.contains("ws-02"));
+
+    // switch back to ws-01
+    let switched = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/workspaces/active")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"id":"ws-01"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(switched.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn switch_to_unknown_workspace_404() {
+    let app = api_router(ws());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/workspaces/active")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"id":"nope"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
