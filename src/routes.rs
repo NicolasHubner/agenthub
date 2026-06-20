@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
 
 use axum::{
     extract::{Query, State, WebSocketUpgrade},
@@ -15,13 +16,42 @@ use crate::pty::handle_pty_socket;
 use crate::sessions::{SessionSnapshot, SessionStore};
 use crate::workspace::{Workspace, WorkspaceError};
 
-pub type SharedWorkspace = Arc<Workspace>;
+pub type SharedActive = Arc<RwLock<ActiveWorkspace>>;
+
+pub struct ActiveWorkspace {
+    pub id: String,
+    pub folders: Vec<Arc<Workspace>>,
+    pub sessions: Arc<SessionStore>,
+}
+
+impl ActiveWorkspace {
+    /// First folder — the default cwd / single-folder convenience.
+    pub fn primary(&self) -> Arc<Workspace> {
+        self.folders[0].clone()
+    }
+
+    /// Folder whose canonical root matches `root` (as returned by root_display()).
+    pub fn folder(&self, root: &str) -> Option<Arc<Workspace>> {
+        self.folders.iter().find(|w| w.root_display() == root).cloned()
+    }
+
+    /// Validate a terminal cwd against every folder; first that accepts wins.
+    pub fn resolve_dir_any(&self, path: &str) -> Result<PathBuf, WorkspaceError> {
+        let mut last = WorkspaceError::NotFound;
+        for w in &self.folders {
+            match w.resolve_dir(path) {
+                Ok(p) => return Ok(p),
+                Err(e) => last = e,
+            }
+        }
+        Err(last)
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
-    pub workspace: SharedWorkspace,
+    pub active: SharedActive,
     pub hub: SharedHub,
-    pub sessions: Arc<SessionStore>,
 }
 
 struct ApiError(StatusCode, &'static str);
@@ -52,9 +82,10 @@ async fn get_state(State(state): State<AppState>) -> Json<serde_json::Value> {
 }
 
 async fn get_sessions(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let snap = state.sessions.get();
+    let active = state.active.read().unwrap();
+    let snap = active.sessions.get();
     Json(json!({
-        "workspace": state.workspace.root_display(),
+        "workspace": active.primary().root_display(),
         "terminals": snap.terminals,
         "widgets": snap.widgets,
         "edges": snap.edges,
@@ -67,31 +98,23 @@ async fn put_sessions(
     State(state): State<AppState>,
     Json(body): Json<SessionSnapshot>,
 ) -> Result<StatusCode, ApiError> {
-    // Terminals dropped from the canvas are gone for good: kill their
-    // persistent tmux sessions so dead/orphaned sessions don't pile up.
-    // Plain reloads re-save the same set, so nothing is killed.
-    let prev: std::collections::HashSet<String> = state
-        .sessions
-        .get()
-        .terminals
-        .into_iter()
-        .map(|t| t.name)
-        .collect();
+    let sessions = state.active.read().unwrap().sessions.clone();
+    let prev: std::collections::HashSet<String> =
+        sessions.get().terminals.into_iter().map(|t| t.name).collect();
     let next: std::collections::HashSet<String> =
         body.terminals.iter().map(|t| t.name.clone()).collect();
     for removed in prev.difference(&next) {
         crate::pty::kill_tmux_session(removed).await;
     }
-
-    state
-        .sessions
+    sessions
         .save(body)
         .map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "io error"))?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn get_files(State(state): State<AppState>) -> Response {
-    Json(json!({ "files": state.workspace.list_files() })).into_response()
+    let ws = state.active.read().unwrap().primary();
+    Json(json!({ "files": ws.list_files() })).into_response()
 }
 
 #[derive(Deserialize)]
@@ -103,7 +126,8 @@ async fn get_file(
     State(state): State<AppState>,
     Query(q): Query<FileQuery>,
 ) -> Result<Json<crate::workspace::FileContent>, ApiError> {
-    Ok(Json(state.workspace.read_file(&q.path)?))
+    let ws = state.active.read().unwrap().primary();
+    Ok(Json(ws.read_file(&q.path)?))
 }
 
 async fn ws_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
@@ -204,19 +228,15 @@ struct SubagentBody {
 async fn pty_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
         let hub = state.hub.clone();
-        let workspace = state.workspace.clone();
+        let folders = state.active.read().unwrap().folders.clone();
         async move {
-            handle_pty_socket(hub, workspace, socket).await;
+            handle_pty_socket(hub, folders, socket).await;
         }
     })
 }
 
-pub fn app_router(workspace: SharedWorkspace, hub: SharedHub, sessions: Arc<SessionStore>) -> Router {
-    let state = AppState {
-        workspace,
-        hub,
-        sessions,
-    };
+pub fn app_router(active: SharedActive, hub: SharedHub) -> Router {
+    let state = AppState { active, hub };
     Router::new()
         .route("/state", get(get_state))
         .route("/msg", post(post_msg))
@@ -231,8 +251,13 @@ pub fn app_router(workspace: SharedWorkspace, hub: SharedHub, sessions: Arc<Sess
         .with_state(state)
 }
 
-pub fn api_router(ws: SharedWorkspace) -> Router {
-    let root = ws.root_display();
-    let sessions = Arc::new(SessionStore::new(std::path::Path::new(&root)));
-    app_router(ws, Arc::new(Hub::new()), sessions)
+/// Test/helper constructor: one workspace folder, sessions under its root.
+pub fn api_router(ws: Arc<Workspace>) -> Router {
+    let sessions = Arc::new(SessionStore::new(ws.root()));
+    let active = Arc::new(RwLock::new(ActiveWorkspace {
+        id: "ws-01".into(),
+        folders: vec![ws],
+        sessions,
+    }));
+    app_router(active, Arc::new(Hub::new()))
 }

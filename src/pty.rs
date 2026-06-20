@@ -6,8 +6,9 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
+use std::sync::Arc;
+
 use crate::hub::SharedHub;
-use crate::routes::SharedWorkspace;
 
 #[derive(Debug, Deserialize)]
 struct SpawnMsg {
@@ -122,7 +123,7 @@ pub fn agent_launch_script(command: &str) -> String {
     }
     let cmd_q = shell_quote(cmd);
     format!(
-        "if command -v {cmd_q} >/dev/null 2>&1; then exec {cmd_q}; \
+        "if command -v {cmd_q} >/dev/null 2>&1; then {cmd_q}; exec {shell_q} -i; \
          else printf '\\n\\x1b[33m%s: command not found — starting interactive shell\\x1b[0m\\n\\n' {cmd_q}; \
          exec {shell_q} -i; fi"
     )
@@ -170,7 +171,7 @@ async fn send_error(ws_tx: &mut futures::stream::SplitSink<WebSocket, Message>, 
     let _ = ws_tx.send(Message::Text(err.to_string())).await;
 }
 
-pub async fn handle_pty_socket(hub: SharedHub, workspace: SharedWorkspace, socket: WebSocket) {
+pub async fn handle_pty_socket(hub: SharedHub, folders: Vec<Arc<crate::workspace::Workspace>>, socket: WebSocket) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     let first = match ws_rx.next().await {
@@ -189,10 +190,10 @@ pub async fn handle_pty_socket(hub: SharedHub, workspace: SharedWorkspace, socke
         }
     };
 
-    let cwd = match workspace.resolve_dir(&spawn.cwd) {
-        Ok(p) => p,
-        Err(_) => {
-            send_error(&mut ws_tx, "invalid cwd (must be inside workspace)").await;
+    let cwd = match folders.iter().find_map(|w| w.resolve_dir(&spawn.cwd).ok()) {
+        Some(p) => p,
+        None => {
+            send_error(&mut ws_tx, "invalid cwd (must be inside a workspace folder)").await;
             return;
         }
     };
