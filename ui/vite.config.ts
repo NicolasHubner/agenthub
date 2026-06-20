@@ -16,6 +16,8 @@ export default defineConfig({
         navigateFallbackDenylist: [new RegExp(`^/(${API_PREFIXES.join("|")})(/|$)`)],
         // Don't try to cache PTY/websocket or API responses.
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        // Bundle includes CodeMirror + xterm which exceeds the 2 MiB default.
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       manifest: {
         name: "AgentHub",

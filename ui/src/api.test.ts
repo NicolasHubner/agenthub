@@ -25,7 +25,7 @@ describe("api", () => {
     const f = await getFile("/r", "docs/a b.md");
     expect(f.content).toBe("# hi");
     expect(f.language).toBe("markdown");
-    const [url] = fetchMock.mock.calls[0];
+    const [url] = (fetchMock.mock.calls as unknown as [string, RequestInit?][])[0];
     expect(url).toContain("root=%2Fr");
     expect(url).toContain("path=docs%2Fa%20b.md");
   });
@@ -39,10 +39,10 @@ describe("api", () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
     await saveFile("/r", "a.ts", "hello");
-    const [url, opts] = fetchMock.mock.calls[0];
+    const [url, opts] = (fetchMock.mock.calls as unknown as [string, RequestInit][])[0];
     expect(url).toContain("/file?root=%2Fr&path=a.ts");
-    expect((opts as RequestInit).method).toBe("PUT");
-    expect((opts as RequestInit).body).toBe(JSON.stringify({ content: "hello" }));
+    expect(opts.method).toBe("PUT");
+    expect(opts.body).toBe(JSON.stringify({ content: "hello" }));
   });
 
   it("saveFile throws on non-2xx response", async () => {
