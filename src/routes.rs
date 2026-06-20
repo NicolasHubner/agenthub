@@ -296,7 +296,7 @@ async fn get_browse(Query(q): Query<BrowseQuery>) -> Result<Json<serde_json::Val
             .unwrap_or("")
             .cmp(b["name"].as_str().unwrap_or(""))
     });
-    let parent = dir.parent().map(|p| p.display().to_string());
+    let parent = dir.parent().and_then(|p| if p == dir { None } else { Some(p.display().to_string()) });
     Ok(Json(json!({
         "path": dir.display().to_string(),
         "parent": parent,
