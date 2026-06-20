@@ -72,7 +72,7 @@ impl Registry {
     }
 
     pub fn seed_if_empty(&self, seed_dir: &Path) {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         if !data.workspaces.is_empty() {
             return;
         }
@@ -92,21 +92,21 @@ impl Registry {
     }
 
     pub fn snapshot(&self) -> (String, Vec<WorkspaceEntry>) {
-        let data = self.data.lock().unwrap();
+        let data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         (data.active.clone(), data.workspaces.clone())
     }
 
     pub fn entry(&self, id: &str) -> Option<WorkspaceEntry> {
-        self.data.lock().unwrap().workspaces.iter().find(|w| w.id == id).cloned()
+        self.data.lock().unwrap_or_else(|e| e.into_inner()).workspaces.iter().find(|w| w.id == id).cloned()
     }
 
     pub fn active_entry(&self) -> Option<WorkspaceEntry> {
-        let data = self.data.lock().unwrap();
+        let data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         data.workspaces.iter().find(|w| w.id == data.active).cloned()
     }
 
     pub fn create(&self, name: Option<String>, folder: String) -> WorkspaceEntry {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         let id = Self::next_id(&data);
         let n = id.strip_prefix("ws-").unwrap_or("");
         let entry = WorkspaceEntry {
@@ -121,7 +121,7 @@ impl Registry {
     }
 
     pub fn set_active(&self, id: &str) -> bool {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         if data.workspaces.iter().any(|w| w.id == id) {
             data.active = id.to_string();
             self.persist(&data);
@@ -132,7 +132,7 @@ impl Registry {
     }
 
     pub fn remove(&self, id: &str) {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         data.workspaces.retain(|w| w.id != id);
         if data.active == id {
             data.active = data.workspaces.first().map(|w| w.id.clone()).unwrap_or_default();
@@ -141,7 +141,7 @@ impl Registry {
     }
 
     pub fn rename(&self, id: &str, name: String) {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(w) = data.workspaces.iter_mut().find(|w| w.id == id) {
             w.name = name;
         }
@@ -149,7 +149,7 @@ impl Registry {
     }
 
     pub fn add_folder(&self, id: &str, dir: String) {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(w) = data.workspaces.iter_mut().find(|w| w.id == id) {
             if !w.folders.contains(&dir) {
                 w.folders.push(dir);
@@ -159,7 +159,7 @@ impl Registry {
     }
 
     pub fn remove_folder(&self, id: &str, dir: &str) {
-        let mut data = self.data.lock().unwrap();
+        let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(w) = data.workspaces.iter_mut().find(|w| w.id == id) {
             w.folders.retain(|f| f != dir);
         }
