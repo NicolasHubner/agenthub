@@ -380,8 +380,9 @@ async fn post_active(
     if !state.registry.set_active(&body.id) {
         return Err(ApiError(StatusCode::NOT_FOUND, "unknown workspace"));
     }
-    let entry = state.registry.entry(&body.id).expect("just set active");
-    *state.active.write().unwrap() = build_active(&entry);
+    if let Some(entry) = state.registry.active_entry() {
+        *state.active.write().unwrap() = build_active(&entry);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -440,10 +441,13 @@ async fn delete_folder(
     AxPath(id): AxPath<String>,
     Json(body): Json<FolderBody>,
 ) -> StatusCode {
-    state.registry.remove_folder(&id, &body.dir);
+    let canon = Workspace::new(&body.dir)
+        .map(|w| w.root_display())
+        .unwrap_or(body.dir);
+    state.registry.remove_folder(&id, &canon);
     if state.registry.snapshot().0 == id {
         let mut active = state.active.write().unwrap();
-        active.folders.retain(|w| w.root_display() != body.dir);
+        active.folders.retain(|w| w.root_display() != canon);
     }
     StatusCode::NO_CONTENT
 }
