@@ -13,6 +13,7 @@ export interface FolderFiles {
 
 export async function getFolders(): Promise<FolderFiles[]> {
   const res = await fetch(`${BASE}/files`);
+  if (!res.ok) throw new Error(`Failed to load folders: ${res.status}`);
   const data = await res.json();
   return data.folders;
 }
@@ -21,6 +22,7 @@ export async function getFile(root: string, path: string): Promise<FileContent> 
   const res = await fetch(
     `${BASE}/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`
   );
+  if (!res.ok) throw new Error(`Failed to load file: ${res.status}`);
   return res.json();
 }
 

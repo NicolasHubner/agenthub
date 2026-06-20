@@ -30,6 +30,11 @@ describe("api", () => {
     expect(url).toContain("path=docs%2Fa%20b.md");
   });
 
+  it("getFile throws on error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 403 })));
+    await expect(getFile("/root", "a.md")).rejects.toThrow("403");
+  });
+
   it("saveFile PUTs with correct body", async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
