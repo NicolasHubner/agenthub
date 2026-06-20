@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
 // Backend routes that must never be served the SPA shell by the service worker.
-const API_PREFIXES = ["files", "file", "state", "sessions", "msg", "note", "subagents", "ws"];
+const API_PREFIXES = ["files", "file", "state", "sessions", "msg", "note", "subagents", "ws", "browse", "workspaces"];
 
 export default defineConfig({
   plugins: [
@@ -51,6 +51,8 @@ export default defineConfig({
       "/note": "http://127.0.0.1:3000",
       "/subagents": "http://127.0.0.1:3000",
       "/ws": { target: "ws://127.0.0.1:3000", ws: true },
+      "/browse": "http://127.0.0.1:3000",
+      "/workspaces": "http://127.0.0.1:3000",
     },
   },
   test: {

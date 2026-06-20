@@ -133,7 +133,8 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
   const [workspaceName, setWorkspaceName] = useState("Workspace");
   const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
   const [activeId, setActiveId] = useState<string>("");
-  const [picker, setPicker] = useState<null | "new" | "folder">(null);
+  const [picker, setPicker] = useState<null | "new" | "folder" | "spawn">(null);
+  const [pendingPresetId, setPendingPresetId] = useState<string | null>(null);
   const [view, setView] = useState<CanvasView>(DEFAULT_VIEW);
   const [loaded, setLoaded] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -324,11 +325,12 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
 
   const spawnCwd = activeFolders[0] ?? ".";
 
-  function addTerminal(preset: AgentPreset) {
-    void ensureFolder(spawnCwd);
+  function addTerminal(preset: AgentPreset, cwd?: string) {
+    const dir = cwd ?? spawnCwd;
+    void ensureFolder(dir);
     setNodes((ns) => {
       const { x, y } = nextCanvasPosition(allRects(ns, widgets), DEFAULT_TERM_WIDTH, DEFAULT_TERM_HEIGHT);
-      const node = makeNode(preset, spawnCwd, x, y, ns.map((n) => n.name));
+      const node = makeNode(preset, dir, x, y, ns.map((n) => n.name));
       setSelectedId(node.id);
       return [...ns, node];
     });
@@ -691,12 +693,19 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
             onConfirm={handleNewWorkspace}
           />
         )}
+        {picker === "spawn" && pendingPresetId && (
+          <DirectoryPicker
+            title="Pick a folder to open"
+            onCancel={() => { setPicker(null); setPendingPresetId(null); }}
+            onConfirm={(dir) => { addTerminal(presetById(pendingPresetId), dir); setPicker(null); setPendingPresetId(null); }}
+          />
+        )}
 
         <div className="maestri-canvas-wrap">
           <CanvasToolbar
             activeTool={activeTool}
             onToolChange={handleToolChange}
-            onAddTerminal={(presetId) => addTerminal(presetById(presetId))}
+            onAddTerminal={(presetId) => { setPendingPresetId(presetId); setPicker("spawn"); }}
           />
 
           {prefixActive && (
