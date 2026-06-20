@@ -57,9 +57,14 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
+    /// Store at `<workspace_root>/.agenthub/sessions.json` (legacy layout).
     pub fn new(workspace_root: &Path) -> Self {
-        let dir = workspace_root.join(".agenthub");
-        let path = dir.join("sessions.json");
+        Self::new_in(&workspace_root.join(".agenthub"))
+    }
+
+    /// Store at `<state_dir>/sessions.json` (global per-workspace layout).
+    pub fn new_in(state_dir: &Path) -> Self {
+        let path = state_dir.join("sessions.json");
         let data = if path.exists() {
             fs::read_to_string(&path)
                 .ok()
@@ -86,5 +91,19 @@ impl SessionStore {
         fs::write(&self.path, json)?;
         *self.data.lock().expect("sessions lock") = snap;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_in_uses_dir_directly() {
+        let dir = std::env::temp_dir().join(format!("agenthub-sess-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = SessionStore::new_in(&dir);
+        store.save(SessionSnapshot::default()).unwrap();
+        assert!(dir.join("sessions.json").exists());
     }
 }
