@@ -11,13 +11,15 @@ interface OpenFile {
 
 export function App() {
   const [openFile, setOpenFile] = useState<OpenFile | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
 
   async function handleOpenFile(root: string, path: string) {
     try {
-      const { content } = await getFile(root, path);
-      setOpenFile({ root, path, content });
-    } catch {
-      // ignore
+      const fc = await getFile(root, path);
+      setOpenFile({ root, path, content: fc.content });
+      setOpenError(null);
+    } catch (e) {
+      setOpenError(e instanceof Error ? e.message : "Failed to open file");
     }
   }
 
@@ -31,6 +33,11 @@ export function App() {
           content={openFile.content}
           onClose={() => setOpenFile(null)}
         />
+      )}
+      {openError && (
+        <div className="open-error" role="alert" onClick={() => setOpenError(null)}>
+          {openError}
+        </div>
       )}
     </div>
   );

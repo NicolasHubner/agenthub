@@ -389,15 +389,28 @@ async fn post_active(
 async fn delete_workspace(
     State(state): State<AppState>,
     AxPath(id): AxPath<String>,
-) -> StatusCode {
-    let was_active = state.registry.snapshot().0 == id;
+) -> Result<StatusCode, ApiError> {
+    let (current_active, workspaces) = state.registry.snapshot();
+    if !workspaces.iter().any(|w| w.id == id) {
+        return Err(ApiError(StatusCode::NOT_FOUND, "unknown workspace"));
+    }
+    let was_active = current_active == id;
     state.registry.remove(&id);
     if was_active {
-        if let Some(entry) = state.registry.active_entry() {
-            *state.active.write().unwrap() = build_active(&entry);
+        match state.registry.active_entry() {
+            Some(entry) => *state.active.write().unwrap() = build_active(&entry),
+            None => {
+                *state.active.write().unwrap() = ActiveWorkspace {
+                    id: String::new(),
+                    folders: vec![],
+                    sessions: std::sync::Arc::new(crate::sessions::SessionStore::new_in(
+                        &std::path::Path::new("/tmp"),
+                    )),
+                };
+            }
         }
     }
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]

@@ -217,21 +217,22 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
     await loadWorkspaces();
   }
 
+  const activeFolders = workspaces.find((w) => w.id === activeId)?.folders ?? [];
+
   async function handleNewWorkspace(dir: string) {
     await createWorkspace(dir);
     setPicker(null);
-    await loadWorkspaces();
     await reload();
+    await loadWorkspaces();
   }
 
-  async function ensureFolder(dir: string) {
-    const activeFolders = workspaces.find((w) => w.id === activeId)?.folders ?? [];
+  const ensureFolder = useCallback(async (dir: string) => {
     if (!activeFolders.includes(dir)) {
       await connectFolder(activeId, dir);
       await loadWorkspaces();
       await reload();
     }
-  }
+  }, [activeFolders, activeId, loadWorkspaces, reload]);
 
   useEffect(() => {
     const hub = connectHub(
@@ -321,7 +322,6 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
     [],
   );
 
-  const activeFolders = workspaces.find((w) => w.id === activeId)?.folders ?? [];
   const spawnCwd = activeFolders[0] ?? ".";
 
   function addTerminal(preset: AgentPreset) {

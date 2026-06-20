@@ -459,3 +459,6 @@ body {
 .ws-active.current { background: rgba(189,147,249,0.12); border-color: #bd93f9; }
 .ws-new { background: none; border: 1px dashed #44475a; border-radius: 6px; padding: 6px 8px;
   color: #8be9fd; cursor: pointer; font-size: 12px; }
+
+.open-error { position: fixed; bottom: 16px; right: 16px; background: #ff5555;
+  color: #f8f8f2; padding: 8px 14px; border-radius: 6px; cursor: pointer; z-index: 2000; }

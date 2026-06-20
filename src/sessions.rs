@@ -80,7 +80,7 @@ impl SessionStore {
     }
 
     pub fn get(&self) -> SessionSnapshot {
-        self.data.lock().expect("sessions lock").clone()
+        self.data.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn save(&self, snap: SessionSnapshot) -> std::io::Result<()> {
@@ -89,7 +89,7 @@ impl SessionStore {
         }
         let json = serde_json::to_string_pretty(&snap).expect("sessions serialize");
         fs::write(&self.path, json)?;
-        *self.data.lock().expect("sessions lock") = snap;
+        *self.data.lock().unwrap_or_else(|e| e.into_inner()) = snap;
         Ok(())
     }
 }
