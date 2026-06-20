@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { connectPty } from "./pty";
@@ -17,6 +17,8 @@ type Props = {
   onRemove: (id: string) => void;
   onPortMouseDown: (id: string, e: React.MouseEvent) => void;
   onPortMouseUp: (id: string) => void;
+  onDisconnect: (otherName: string) => void;
+  connections: string[];
   linking: boolean;
   spaceHeld: boolean;
   selected: boolean;
@@ -32,6 +34,8 @@ export function TerminalNode({
   onRemove,
   onPortMouseDown,
   onPortMouseUp,
+  onDisconnect,
+  connections,
   linking,
   spaceHeld,
   selected,
@@ -42,6 +46,7 @@ export function TerminalNode({
   const ptyRef = useRef<ReturnType<typeof connectPty> | null>(null);
   const dragRef = useRef<{ ox: number; oy: number } | null>(null);
   const resizeRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
+  const [gearOpen, setGearOpen] = useState(false);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -96,6 +101,17 @@ export function TerminalNode({
   useEffect(() => {
     if (selected) termRef.current?.focus();
   }, [selected]);
+
+  // Close gear dropdown when clicking outside.
+  useEffect(() => {
+    if (!gearOpen) return;
+    function onOutside(e: MouseEvent) {
+      const el = (e.target as HTMLElement).closest(".node-gear-menu,.node-gear-btn");
+      if (!el) setGearOpen(false);
+    }
+    window.addEventListener("mousedown", onOutside);
+    return () => window.removeEventListener("mousedown", onOutside);
+  }, [gearOpen]);
 
   function onHeaderMouseDown(e: React.MouseEvent) {
     if (spaceHeld) return;
@@ -171,6 +187,40 @@ export function TerminalNode({
         <span className="node-badge" style={{ background: preset.color }}>
           {preset.badge}
         </span>
+        {connections.length > 0 && (
+          <div className="node-gear-wrap">
+            <button
+              type="button"
+              className="node-gear-btn"
+              title="Connections"
+              onClick={(e) => { e.stopPropagation(); setGearOpen((o) => !o); }}
+            >
+              ⚙
+            </button>
+            {gearOpen && (
+              <div className="node-gear-menu">
+                <div className="gear-menu-title">Connections</div>
+                {connections.map((name) => (
+                  <div key={name} className="gear-menu-item">
+                    <span className="gear-peer-name">{name}</span>
+                    <button
+                      type="button"
+                      className="gear-disconnect-btn"
+                      title={`Disconnect ${name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDisconnect(name);
+                        if (connections.length <= 1) setGearOpen(false);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <button type="button" className="node-close" onClick={() => onRemove(node.id)}>
           ×
         </button>
