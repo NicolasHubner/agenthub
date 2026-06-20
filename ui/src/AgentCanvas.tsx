@@ -42,6 +42,14 @@ import {
 } from "./sessions";
 import { buildCanvasItems, WorkspaceSidebar } from "./WorkspaceSidebar";
 import type { FolderFiles } from "./api";
+import {
+  listWorkspaces,
+  switchWorkspace,
+  createWorkspace,
+  connectFolder,
+  type WorkspaceEntry,
+} from "./workspaces";
+import { DirectoryPicker } from "./DirectoryPicker";
 
 let nextId = 1;
 let nextWidgetId = 1;
@@ -123,8 +131,10 @@ export function AgentCanvas({ folders, onOpenFile }: AgentCanvasProps) {
   const [linkFrom, setLinkFrom] = useState<string | null>(null);
   const linkFromRef = useRef<string | null>(null);
   const [linkCursor, setLinkCursor] = useState<{ x: number; y: number } | null>(null);
-  const [cwd, setCwd] = useState("");
   const [workspaceName, setWorkspaceName] = useState("Workspace");
+  const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
+  const [activeId, setActiveId] = useState<string>("");
+  const [picker, setPicker] = useState<null | "new" | "folder">(null);
   const [view, setView] = useState<CanvasView>(DEFAULT_VIEW);
   const [loaded, setLoaded] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -149,40 +159,78 @@ export function AgentCanvas({ folders, onOpenFile }: AgentCanvasProps) {
     [view],
   );
 
-  useEffect(() => {
-    fetchSessions()
-      .then((data) => {
-        setCwd(data.workspace);
-        const parts = data.workspace.split("/").filter(Boolean);
-        setWorkspaceName(parts[parts.length - 1] || "Workspace");
-        if (data.terminals.length > 0) {
-          setNodes(
-            data.terminals.map((t) => ({
-              ...t,
-              preset: t.preset || presetById("bash").id,
-            })),
-          );
-          const max = data.terminals.reduce((m, t) => {
-            const n = parseInt(t.id.replace(/\D/g, ""), 10);
-            return Number.isFinite(n) ? Math.max(m, n) : m;
-          }, 0);
-          nextId = max + 1;
-        }
-        if (data.widgets?.length) {
-          setWidgets(data.widgets);
-          const maxW = data.widgets.reduce((m, w) => {
-            const n = parseInt(w.id.replace(/\D/g, ""), 10);
-            return Number.isFinite(n) ? Math.max(m, n) : m;
-          }, 0);
-          nextWidgetId = maxW + 1;
-        }
-        if (data.edges) { setPendingEdges(data.edges); savedEdgesRef.current = data.edges; }
-        if (data.widgetEdges?.length) setWidgetEdges(data.widgetEdges);
-        if (data.view) setView(data.view);
-      })
-      .catch(() => setCwd("."))
-      .finally(() => setLoaded(true));
+  const loadWorkspaces = useCallback(async () => {
+    try {
+      const { active, workspaces: list } = await listWorkspaces();
+      setActiveId(active);
+      setWorkspaces(list);
+    } catch { /* ignore */ }
   }, []);
+
+  const reload = useCallback(async () => {
+    try {
+      const data = await fetchSessions();
+      const parts = data.workspace.split("/").filter(Boolean);
+      setWorkspaceName(parts[parts.length - 1] || "Workspace");
+      if (data.terminals.length > 0) {
+        setNodes(
+          data.terminals.map((t) => ({
+            ...t,
+            preset: t.preset || presetById("bash").id,
+          })),
+        );
+        const max = data.terminals.reduce((m, t) => {
+          const n = parseInt(t.id.replace(/\D/g, ""), 10);
+          return Number.isFinite(n) ? Math.max(m, n) : m;
+        }, 0);
+        nextId = max + 1;
+      } else {
+        setNodes([]);
+      }
+      if (data.widgets?.length) {
+        setWidgets(data.widgets);
+        const maxW = data.widgets.reduce((m, w) => {
+          const n = parseInt(w.id.replace(/\D/g, ""), 10);
+          return Number.isFinite(n) ? Math.max(m, n) : m;
+        }, 0);
+        nextWidgetId = maxW + 1;
+      } else {
+        setWidgets([]);
+      }
+      if (data.edges) { setPendingEdges(data.edges); savedEdgesRef.current = data.edges; }
+      else { setPendingEdges([]); savedEdgesRef.current = []; }
+      if (data.widgetEdges?.length) setWidgetEdges(data.widgetEdges);
+      else setWidgetEdges([]);
+      if (data.view) setView(data.view);
+    } catch { /* ignore */ }
+    finally { setLoaded(true); }
+  }, []);
+
+  useEffect(() => { void reload(); void loadWorkspaces(); }, [reload, loadWorkspaces]);
+
+  async function handleSwitch(id: string) {
+    if (id === activeId) return;
+    await switchWorkspace(id);
+    setActiveId(id);
+    await reload();
+    await loadWorkspaces();
+  }
+
+  async function handleNewWorkspace(dir: string) {
+    await createWorkspace(dir);
+    setPicker(null);
+    await loadWorkspaces();
+    await reload();
+  }
+
+  async function ensureFolder(dir: string) {
+    const activeFolders = workspaces.find((w) => w.id === activeId)?.folders ?? [];
+    if (!activeFolders.includes(dir)) {
+      await connectFolder(activeId, dir);
+      await loadWorkspaces();
+      await reload();
+    }
+  }
 
   useEffect(() => {
     const hub = connectHub(
@@ -272,10 +320,14 @@ export function AgentCanvas({ folders, onOpenFile }: AgentCanvasProps) {
     [],
   );
 
+  const activeFolders = workspaces.find((w) => w.id === activeId)?.folders ?? [];
+  const spawnCwd = activeFolders[0] ?? ".";
+
   function addTerminal(preset: AgentPreset) {
+    void ensureFolder(spawnCwd);
     setNodes((ns) => {
       const { x, y } = nextCanvasPosition(allRects(ns, widgets), DEFAULT_TERM_WIDTH, DEFAULT_TERM_HEIGHT);
-      const node = makeNode(preset, cwd, x, y, ns.map((n) => n.name));
+      const node = makeNode(preset, spawnCwd, x, y, ns.map((n) => n.name));
       setSelectedId(node.id);
       return [...ns, node];
     });
@@ -610,14 +662,6 @@ export function AgentCanvas({ folders, onOpenFile }: AgentCanvasProps) {
           <strong>{workspaceName}</strong>
           <span className={`hub-status status-${status}`}>{status}</span>
         </div>
-        <label className="cwd-field">
-          <span>Directory</span>
-          <input
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder="/path/to/project"
-          />
-        </label>
         <span className="hint">Link = permission to message · use agenthub-cli ask</span>
         {connectError && <span className="connect-error">{connectError}</span>}
       </header>
@@ -625,7 +669,7 @@ export function AgentCanvas({ folders, onOpenFile }: AgentCanvasProps) {
       <div className="maestri-body">
         <WorkspaceSidebar
           workspaceName={workspaceName}
-          cwd={cwd}
+          cwd={spawnCwd}
           items={canvasItems}
           selectedId={selectedId}
           onSelect={focusItem}
@@ -634,7 +678,18 @@ export function AgentCanvas({ folders, onOpenFile }: AgentCanvasProps) {
           folders={folders}
           onOpenFile={onOpenFile}
           subagents={subagents}
+          workspaces={workspaces}
+          activeId={activeId}
+          onSwitchWorkspace={handleSwitch}
+          onNewWorkspace={() => setPicker("new")}
         />
+        {picker === "new" && (
+          <DirectoryPicker
+            title="New workspace — pick a folder"
+            onCancel={() => setPicker(null)}
+            onConfirm={handleNewWorkspace}
+          />
+        )}
 
         <div className="maestri-canvas-wrap">
           <CanvasToolbar

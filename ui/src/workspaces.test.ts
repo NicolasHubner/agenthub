@@ -18,15 +18,17 @@ describe("workspaces client", () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ id: "ws-02", name: "x", folders: ["/d"] }) }));
     vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
     await createWorkspace("/d", "x");
-    const [url, opts] = fetchMock.mock.calls[0];
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const [url, opts] = calls[0];
     expect(url).toBe("/workspaces");
-    expect(JSON.parse((opts as RequestInit).body as string)).toEqual({ folder: "/d", name: "x" });
+    expect(JSON.parse(opts.body as string)).toEqual({ folder: "/d", name: "x" });
   });
 
   it("connectFolder POSTs to the folders route", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
     await connectFolder("ws-01", "/d");
-    expect(fetchMock.mock.calls[0][0]).toBe("/workspaces/ws-01/folders");
+    const calls = fetchMock.mock.calls as unknown as [string][];
+    expect(calls[0][0]).toBe("/workspaces/ws-01/folders");
   });
 });
