@@ -1,58 +1,7 @@
 import { FolderFiles } from "./api";
 
 // ---------------------------------------------------------------------------
-// Legacy API — kept for FileTree.tsx compatibility until C2 lands
-// ---------------------------------------------------------------------------
-
-export interface TreeNode {
-  name: string;
-  path: string;
-  children: TreeNode[] | null; // null = file, array = directory
-}
-
-interface LegacyAcc {
-  name: string;
-  path: string;
-  dirs: Map<string, LegacyAcc>;
-  files: string[];
-}
-
-function emptyLegacy(name: string, path: string): LegacyAcc {
-  return { name, path, dirs: new Map(), files: [] };
-}
-
-export function buildTree(paths: string[]): TreeNode[] {
-  const root = emptyLegacy("", "");
-  for (const p of paths) {
-    const parts = p.split("/");
-    let cur = root;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const name = parts[i];
-      const path = cur.path ? `${cur.path}/${name}` : name;
-      if (!cur.dirs.has(name)) cur.dirs.set(name, emptyLegacy(name, path));
-      cur = cur.dirs.get(name)!;
-    }
-    cur.files.push(parts[parts.length - 1]);
-  }
-  return legacyToNodes(root);
-}
-
-function legacyToNodes(dir: LegacyAcc): TreeNode[] {
-  const dirNodes = [...dir.dirs.values()]
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((d) => ({ name: d.name, path: d.path, children: legacyToNodes(d) }));
-  const fileNodes = dir.files
-    .sort((a, b) => a.localeCompare(b))
-    .map((f) => ({
-      name: f,
-      path: dir.path ? `${dir.path}/${f}` : f,
-      children: null as TreeNode[] | null,
-    }));
-  return [...dirNodes, ...fileNodes];
-}
-
-// ---------------------------------------------------------------------------
-// New multi-root API
+// Multi-root API
 // ---------------------------------------------------------------------------
 
 export interface DirNode {

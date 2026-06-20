@@ -1,4 +1,5 @@
-import { buildTree, type TreeNode } from "./tree";
+import { useState, useEffect } from "react";
+import { buildRoots, toggleNode, type DirNode, type RootNode } from "./tree";
 import type { FolderFiles } from "./api";
 
 interface Props {
@@ -6,49 +7,99 @@ interface Props {
   onSelect: (root: string, path: string) => void;
 }
 
-function Node({
+function DirNodeView({
   node,
   root,
+  depth,
+  onToggle,
   onSelect,
 }: {
-  node: TreeNode;
+  node: DirNode;
   root: string;
+  depth: number;
+  onToggle: (nodePath: string) => void;
   onSelect: (root: string, path: string) => void;
 }) {
-  if (node.children === null) {
-    return (
-      <li>
-        <button className="file" onClick={() => onSelect(root, node.path)}>
-          {node.name}
-        </button>
-      </li>
-    );
-  }
+  const indent = { paddingLeft: depth * 12 + "px" };
   return (
-    <li>
-      <span className="dir">{node.name}/</span>
-      <ul>
-        {node.children.map((c) => (
-          <Node key={c.path} node={c} root={root} onSelect={onSelect} />
-        ))}
-      </ul>
-    </li>
+    <>
+      {node.children.map((child) => (
+        <div key={child.path}>
+          <button
+            className="dir"
+            style={indent}
+            onClick={() => onToggle(child.path)}
+          >
+            {child.collapsed ? "▸" : "▾"} {child.name}/
+          </button>
+          {!child.collapsed && (
+            <DirNodeView
+              node={child}
+              root={root}
+              depth={depth + 1}
+              onToggle={onToggle}
+              onSelect={onSelect}
+            />
+          )}
+        </div>
+      ))}
+      {node.files.map((file) => {
+        const fullPath = node.path ? node.path + "/" + file : file;
+        return (
+          <button
+            key={fullPath}
+            className="file"
+            style={indent}
+            onClick={() => onSelect(root, fullPath)}
+          >
+            {file}
+          </button>
+        );
+      })}
+    </>
   );
 }
 
 export function FileTree({ folders, onSelect }: Props) {
+  const [roots, setRoots] = useState<RootNode[]>(() => buildRoots(folders));
+
+  useEffect(() => {
+    setRoots(buildRoots(folders));
+  }, [folders]);
+
+  const handleToggle = (rootIdx: number, nodePath: string) => {
+    setRoots((prev) => {
+      const next = [...prev];
+      next[rootIdx] = toggleNode(next[rootIdx], nodePath);
+      return next;
+    });
+  };
+
+  if (roots.length === 0) return null;
+
   return (
     <>
-      {folders.map((folder) => {
-        const tree = buildTree(folder.files);
+      {roots.map((rootNode, idx) => {
+        const isCollapsed = rootNode.tree.collapsed;
         return (
-          <div key={folder.root} className="tree-folder">
-            <div className="tree-folder-name">{folder.name}</div>
-            <ul className="tree">
-              {tree.map((n) => (
-                <Node key={n.path} node={n} root={folder.root} onSelect={onSelect} />
-              ))}
-            </ul>
+          <div key={rootNode.root} className="tree-folder">
+            <button
+              className="tree-folder-header"
+              onClick={() => handleToggle(idx, rootNode.tree.path)}
+            >
+              {isCollapsed ? "▸" : "▾"} {rootNode.name}
+            </button>
+            {!isCollapsed && (
+              <div className="tree">
+                <DirNodeView
+                  node={rootNode.tree}
+                  root={rootNode.root}
+                  depth={1}
+                  onToggle={(nodePath) => handleToggle(idx, nodePath)}
+                  onSelect={onSelect}
+                />
+              </div>
+            )}
           </div>
         );
       })}
