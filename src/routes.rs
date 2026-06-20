@@ -5,7 +5,7 @@ use axum::{
     extract::{Query, State, WebSocketUpgrade},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::Deserialize;
@@ -148,6 +148,26 @@ async fn get_file(
     Ok(Json(ws.read_file(&q.path)?))
 }
 
+#[derive(Deserialize)]
+struct SaveBody {
+    content: String,
+}
+
+async fn put_file(
+    State(state): State<AppState>,
+    Query(q): Query<FileQuery>,
+    Json(body): Json<SaveBody>,
+) -> Result<StatusCode, ApiError> {
+    let ws = state
+        .active
+        .read()
+        .unwrap()
+        .folder(&q.root)
+        .ok_or(ApiError(StatusCode::FORBIDDEN, "unknown folder"))?;
+    ws.write_file(&q.path, &body.content)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn ws_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
         let hub = state.hub.clone();
@@ -263,7 +283,7 @@ pub fn app_router(active: SharedActive, hub: SharedHub) -> Router {
         .route("/subagents", post(post_subagent))
         .route("/sessions", get(get_sessions).put(put_sessions))
         .route("/files", get(get_files))
-        .route("/file", get(get_file))
+        .route("/file", get(get_file).put(put_file))
         .route("/ws", get(ws_upgrade))
         .route("/ws/pty", get(pty_upgrade))
         .with_state(state)

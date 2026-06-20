@@ -88,3 +88,30 @@ async fn traversal_is_forbidden() {
         .unwrap();
     assert!(matches!(resp.status(), StatusCode::FORBIDDEN | StatusCode::NOT_FOUND));
 }
+
+#[tokio::test]
+async fn put_file_saves_content() {
+    let w = ws();
+    let root = w.root_display();
+    let app = api_router(w);
+    let uri = format!("/file?root={}&path=docs/a.md", urlencoding(&root));
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(&uri)
+                .header("content-type", "application/json")
+                .body(Body::from(r##"{"content":"# saved"}"##))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let get = app
+        .oneshot(Request::builder().uri(&uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert!(body_string(get).await.contains("# saved"));
+}
