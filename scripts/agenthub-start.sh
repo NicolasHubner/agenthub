@@ -9,15 +9,11 @@ BIN="$ROOT/target/release/agenthub"
 UI="$ROOT/ui/dist"
 URL="http://127.0.0.1:$PORT"
 
-if [ ! -f "$UI/index.html" ]; then
-  echo "agenthub: building UI…"
-  (cd "$ROOT/ui" && npm install && npm run build)
-fi
+echo "agenthub: building UI…"
+(cd "$ROOT/ui" && npm install && npm run build)
 
-if [ ! -x "$BIN" ]; then
-  echo "agenthub: building backend…"
-  (cd "$ROOT" && cargo build --release --bin agenthub)
-fi
+echo "agenthub: building backend…"
+(cd "$ROOT" && cargo build --release --bin agenthub)
 
 export AGENTHUB_UI_DIR="$UI"
 export AGENTHUB_PORT="$PORT"

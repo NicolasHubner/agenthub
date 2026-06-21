@@ -50,6 +50,15 @@ export async function connectFolder(id: string, dir: string): Promise<void> {
   if (!res.ok) throw new Error(`connect folder ${res.status}`);
 }
 
+export async function disconnectFolder(id: string, dir: string): Promise<void> {
+  const res = await fetch(`/workspaces/${id}/folders`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dir }),
+  });
+  if (!res.ok) throw new Error(`disconnect folder ${res.status}`);
+}
+
 export async function removeWorkspace(id: string): Promise<void> {
   const res = await fetch(`/workspaces/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`remove workspace ${res.status}`);

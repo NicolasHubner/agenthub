@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "SUBAGENT_STATUS=running /home/nicolas/agenthub/.claude/hooks/subagent-notify.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "SUBAGENT_STATUS=done /home/nicolas/agenthub/.claude/hooks/subagent-notify.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

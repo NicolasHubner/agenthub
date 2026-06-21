@@ -45,8 +45,32 @@ Inspired by tools like [Maestri](https://maestri.ai), but deliberately simpler: 
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) (2021 edition)
-- [Node.js](https://nodejs.org/) 18+ and npm
+You need three things installed: **Rust** (cargo), **Node.js 18+** (npm), and **git**.
+
+Copy-paste for your OS:
+
+```bash
+# Linux (Debian/Ubuntu)
+sudo apt-get update && sudo apt-get install -y git curl build-essential
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs
+```
+
+```bash
+# macOS (Homebrew)
+brew install git node rustup-init && rustup-init -y
+```
+
+```powershell
+# Windows (winget)
+winget install Git.Git OpenJS.NodeJS Rustlang.Rustup
+```
+
+After installing, restart your shell so `cargo` and `node` are on PATH. Verify:
+
+```bash
+cargo --version && node --version && npm --version && git --version
+```
 
 ### Easiest: one command (Linux / macOS / Windows)
 

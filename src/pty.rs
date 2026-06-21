@@ -245,6 +245,7 @@ pub async fn handle_pty_socket(hub: SharedHub, folders: Vec<Arc<crate::workspace
 
     let (pty_in_tx, mut pty_in_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     let (resize_tx, mut resize_rx) = mpsc::unbounded_channel::<(u16, u16)>();
+    let (notify_tx, mut notify_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     let name = spawn.name.clone();
 
     if let Err(err) = hub.register(
@@ -252,6 +253,7 @@ pub async fn handle_pty_socket(hub: SharedHub, folders: Vec<Arc<crate::workspace
         spawn.tags,
         None,
         Some(pty_in_tx.clone()),
+        Some(notify_tx),
     ) {
         let json = serde_json::to_string(&err).unwrap_or_default();
         let _ = ws_tx.send(Message::Text(json)).await;
@@ -305,6 +307,11 @@ pub async fn handle_pty_socket(hub: SharedHub, folders: Vec<Arc<crate::workspace
     loop {
         tokio::select! {
             Some(chunk) = out_rx.recv() => {
+                if ws_tx.send(Message::Binary(chunk)).await.is_err() {
+                    break;
+                }
+            }
+            Some(chunk) = notify_rx.recv() => {
                 if ws_tx.send(Message::Binary(chunk)).await.is_err() {
                     break;
                 }

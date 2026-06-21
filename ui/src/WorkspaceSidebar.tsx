@@ -20,10 +20,13 @@ type Props = {
   onAddTerminal: () => void;
   folders: FolderFiles[];
   onOpenFile: (root: string, path: string) => void;
+  onAddFolder: () => void;
+  onRemoveFolder: (root: string) => void;
   subagents?: SubagentSnapshot[];
   workspaces: WorkspaceEntry[];
   activeId: string;
   onSwitchWorkspace: (id: string) => void;
+  onDeleteWorkspace: (id: string) => void;
   onNewWorkspace: () => void;
 };
 
@@ -43,10 +46,13 @@ export function WorkspaceSidebar({
   onAddTerminal,
   folders,
   onOpenFile,
+  onAddFolder,
+  onRemoveFolder,
   subagents = [],
   workspaces,
   activeId,
   onSwitchWorkspace,
+  onDeleteWorkspace,
   onNewWorkspace,
 }: Props) {
   const [filesOpen, setFilesOpen] = useState(false);
@@ -74,6 +80,18 @@ export function WorkspaceSidebar({
               <span className="ws-cwd">{w.folders.length} folder{w.folders.length === 1 ? "" : "s"}</span>
             </div>
             {w.id === activeId && <span className="ws-count">{items.length}</span>}
+            {workspaces.length > 1 && (
+              <span
+                className="ws-delete"
+                role="button"
+                tabIndex={0}
+                title="Delete workspace"
+                onClick={(e) => { e.stopPropagation(); onDeleteWorkspace(w.id); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onDeleteWorkspace(w.id); } }}
+              >
+                ×
+              </span>
+            )}
           </button>
         ))}
         <button type="button" className="ws-new" onClick={onNewWorkspace}>+ New workspace</button>
@@ -111,6 +129,7 @@ export function WorkspaceSidebar({
                   type="button"
                   className={`ws-item${selectedId === item.id ? " active" : ""}`}
                   onClick={() => onSelect(item.id)}
+                  style={{ '--agent-color': item.color } as React.CSSProperties}
                 >
                   <span className="ws-item-icon" style={{ color: item.color }}>
                     {item.icon}
@@ -163,8 +182,8 @@ export function WorkspaceSidebar({
         <p className="ws-empty">Add a note or agent from above</p>
       )}
 
-      {folders.length > 0 && (
-        <div className="ws-section ws-files-section">
+      <div className="ws-section ws-files-section">
+        <div className="ws-files-head">
           <button
             type="button"
             className="ws-section-title ws-files-toggle"
@@ -173,13 +192,25 @@ export function WorkspaceSidebar({
             <span>Files</span>
             <span className="ws-files-chevron">{filesOpen ? "▾" : "▸"}</span>
           </button>
-          {filesOpen && (
-            <div className="ws-file-tree">
-              <FileTree folders={folders} onSelect={onOpenFile} />
-            </div>
-          )}
+          <button
+            type="button"
+            className="ws-files-add"
+            onClick={onAddFolder}
+            title="Add a folder to Files"
+          >
+            +
+          </button>
         </div>
-      )}
+        {filesOpen && (
+          <div className="ws-file-tree">
+            {folders.length > 0 ? (
+              <FileTree folders={folders} onSelect={onOpenFile} onRemoveFolder={onRemoveFolder} />
+            ) : (
+              <p className="ws-empty">No folders — click + to add one</p>
+            )}
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

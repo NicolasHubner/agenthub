@@ -25,6 +25,7 @@ struct AgentEntry {
     tags: Vec<String>,
     ws_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
     pty_in: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
+    pty_out: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
 }
 
 struct SubagentEntry {
@@ -145,6 +146,7 @@ impl Hub {
         tags: Vec<String>,
         ws_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>,
         pty_in: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
+        pty_out: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
     ) -> Result<(), ServerMessage> {
         if let Some(existing) = self.agents.get(&name) {
             let conflict = existing
@@ -154,15 +156,15 @@ impl Hub {
                 .unwrap_or(false);
             if conflict {
                 let warn_old = format!(
-                    "\r\n\x1b[33m⚠  [agenthub] conflito: nova conexão registrou \"{}\" — este terminal foi desconectado do hub\x1b[0m\r\n",
+                    "\r\n\x1b[33m⚠  agenthub: conflito: nova conexão registrou \"{}\" — este terminal foi desconectado do hub\x1b[0m\r\n",
                     name
                 );
-                if let Some(tx) = &existing.pty_in {
+                if let Some(tx) = &existing.pty_out {
                     let _ = tx.send(warn_old.into_bytes());
                 }
-                if let Some(tx) = &pty_in {
+                if let Some(tx) = &pty_out {
                     let warn_new = format!(
-                        "\r\n\x1b[33m⚠  [agenthub] \"{}\" já estava conectado em outro terminal — tomando controle\x1b[0m\r\n",
+                        "\r\n\x1b[33m⚠  agenthub: \"{}\" já estava conectado em outro terminal — tomando controle\x1b[0m\r\n",
                         name
                     );
                     let _ = tx.send(warn_new.into_bytes());
@@ -177,6 +179,7 @@ impl Hub {
                 tags,
                 ws_tx,
                 pty_in,
+                pty_out,
             },
         );
         let state = self.state();
@@ -384,7 +387,7 @@ impl Hub {
                     });
                 }
                 Ok(ClientMessage::Register { name, tags }) => {
-                    if let Err(err) = self.register(name.clone(), tags, Some(out_tx.clone()), None) {
+                    if let Err(err) = self.register(name.clone(), tags, Some(out_tx.clone()), None, None) {
                         self.send_json(&out_tx, &err);
                         return;
                     }

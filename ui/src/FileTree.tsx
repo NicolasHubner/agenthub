@@ -5,6 +5,55 @@ import type { FolderFiles } from "./api";
 interface Props {
   folders: FolderFiles[];
   onSelect: (root: string, path: string) => void;
+  onRemoveFolder?: (root: string) => void;
+}
+
+// VS Code-inspired file extension colors
+const EXT_COLORS: Record<string, string> = {
+  ts: "#3b82f6",
+  tsx: "#06b6d4",
+  js: "#f59e0b",
+  jsx: "#f59e0b",
+  md: "#8b5cf6",
+  mdx: "#8b5cf6",
+  json: "#f97316",
+  yaml: "#ef4444",
+  yml: "#ef4444",
+  toml: "#94a3b8",
+  css: "#a78bfa",
+  scss: "#ec4899",
+  html: "#f97316",
+  rs: "#f97316",
+  sh: "#22c55e",
+  bash: "#22c55e",
+  py: "#3b82f6",
+  go: "#06b6d4",
+  png: "#14b8a6",
+  jpg: "#14b8a6",
+  jpeg: "#14b8a6",
+  gif: "#14b8a6",
+  svg: "#10b981",
+  lock: "#64748b",
+};
+
+function fileColor(name: string): string {
+  const dot = name.lastIndexOf(".");
+  if (dot === -1) return "#6b7280";
+  const ext = name.slice(dot + 1).toLowerCase();
+  return EXT_COLORS[ext] ?? "#6b7280";
+}
+
+function fileIcon(name: string): string {
+  const dot = name.lastIndexOf(".");
+  if (dot === -1) return "·";
+  const ext = name.slice(dot + 1).toLowerCase();
+  if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext)) return "◈";
+  if (["md", "mdx"].includes(ext)) return "≡";
+  if (["json", "toml", "yaml", "yml"].includes(ext)) return "⊞";
+  if (["ts", "tsx", "js", "jsx"].includes(ext)) return "◇";
+  if (["rs", "go", "py", "sh", "bash"].includes(ext)) return "◆";
+  if (["css", "scss"].includes(ext)) return "◉";
+  return "·";
 }
 
 function DirNodeView({
@@ -30,7 +79,11 @@ function DirNodeView({
             style={indent}
             onClick={() => onToggle(child.path)}
           >
-            {child.collapsed ? "▸" : "▾"} {child.name}/
+            <span style={{ opacity: 0.5, fontSize: 10 }}>
+              {child.collapsed ? "▸" : "▾"}
+            </span>
+            <span style={{ color: "#d97706" }}>📁</span>
+            {child.name}
           </button>
           {!child.collapsed && (
             <DirNodeView
@@ -45,13 +98,16 @@ function DirNodeView({
       ))}
       {node.files.map((file) => {
         const fullPath = node.path ? node.path + "/" + file : file;
+        const color = fileColor(file);
+        const icon = fileIcon(file);
         return (
           <button
             key={fullPath}
             className="file"
-            style={indent}
+            style={{ ...indent, color }}
             onClick={() => onSelect(root, fullPath)}
           >
+            <span style={{ opacity: 0.6, fontSize: 10, marginRight: 4 }}>{icon}</span>
             {file}
           </button>
         );
@@ -60,7 +116,7 @@ function DirNodeView({
   );
 }
 
-export function FileTree({ folders, onSelect }: Props) {
+export function FileTree({ folders, onSelect, onRemoveFolder }: Props) {
   const [roots, setRoots] = useState<RootNode[]>(() => buildRoots(folders));
 
   useEffect(() => {
@@ -83,12 +139,27 @@ export function FileTree({ folders, onSelect }: Props) {
         const isCollapsed = rootNode.tree.collapsed;
         return (
           <div key={rootNode.root} className="tree-folder">
-            <button
-              className="tree-folder-header"
-              onClick={() => handleToggle(idx, rootNode.tree.path)}
-            >
-              {isCollapsed ? "▸" : "▾"} {rootNode.name}
-            </button>
+            <div className="tree-folder-row">
+              <button
+                className="tree-folder-header"
+                onClick={() => handleToggle(idx, rootNode.tree.path)}
+              >
+                <span style={{ opacity: 0.5, fontSize: 10 }}>
+                  {isCollapsed ? "▸" : "▾"}
+                </span>
+                <span style={{ color: "#f59e0b" }}>◼</span>
+                {rootNode.name}
+              </button>
+              {onRemoveFolder && (
+                <button
+                  className="tree-folder-remove"
+                  title={`Remove ${rootNode.name}`}
+                  onClick={() => onRemoveFolder(rootNode.root)}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
             {!isCollapsed && (
               <div className="tree">
                 <DirNodeView

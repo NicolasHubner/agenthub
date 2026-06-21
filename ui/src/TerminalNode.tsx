@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { connectPty } from "./pty";
 import { presetById, type AgentPreset, type TerminalSession } from "./sessions";
 import "@xterm/xterm/css/xterm.css";
@@ -53,17 +54,20 @@ export function TerminalNode({
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      lineHeight: 1.15,
+      lineHeight: 1,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       theme: { background: "#1a1b1e", foreground: "#e6e6e6", cursor: "#e6e6e6" },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon());
     term.open(hostRef.current);
     fitRef.current = fit;
     termRef.current = term;
 
-    requestAnimationFrame(() => {
+    let cancelled = false;
+    const raf = requestAnimationFrame(() => {
+      if (cancelled) return;
       fit.fit();
       const pty = connectPty({
         name: node.name,
@@ -80,7 +84,10 @@ export function TerminalNode({
     });
 
     return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
       ptyRef.current?.close();
+      ptyRef.current = null;
       term.dispose();
     };
   }, [node.name, node.command, node.cwd]);
@@ -101,6 +108,52 @@ export function TerminalNode({
   useEffect(() => {
     if (selected) termRef.current?.focus();
   }, [selected]);
+
+  // Correct xterm mouse coordinates when canvas CSS scale != 1.
+  // xterm divides (clientY - rect.top) by cellHeight (DOM px), but when the parent
+  // canvas has a CSS scale transform, clientY - rect.top is in visual px. We intercept
+  // and re-dispatch corrected events so xterm sees DOM-px offsets.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    function fix(e: MouseEvent) {
+      if (!e.isTrusted || zoom === 1) return;
+      const screen = host!.querySelector<HTMLElement>(".xterm-screen");
+      if (!screen) return;
+      const rect = screen.getBoundingClientRect();
+      const cx = rect.left + (e.clientX - rect.left) / zoom;
+      const cy = rect.top + (e.clientY - rect.top) / zoom;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      screen.dispatchEvent(
+        new MouseEvent(e.type, {
+          bubbles: true,
+          cancelable: e.cancelable,
+          view: e.view,
+          detail: e.detail,
+          screenX: e.screenX,
+          screenY: e.screenY,
+          clientX: cx,
+          clientY: cy,
+          button: e.button,
+          buttons: e.buttons,
+          relatedTarget: e.relatedTarget,
+          ctrlKey: e.ctrlKey,
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+        })
+      );
+    }
+    host.addEventListener("mousedown", fix, true);
+    host.addEventListener("mousemove", fix, true);
+    host.addEventListener("mouseup", fix, true);
+    return () => {
+      host.removeEventListener("mousedown", fix, true);
+      host.removeEventListener("mousemove", fix, true);
+      host.removeEventListener("mouseup", fix, true);
+    };
+  }, [zoom]);
 
   // Close gear dropdown when clicking outside.
   useEffect(() => {

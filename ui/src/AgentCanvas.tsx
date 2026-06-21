@@ -46,7 +46,9 @@ import {
   listWorkspaces,
   switchWorkspace,
   createWorkspace,
+  removeWorkspace,
   connectFolder,
+  disconnectFolder,
   type WorkspaceEntry,
 } from "./workspaces";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -227,6 +229,21 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
     await loadWorkspaces();
   }
 
+  async function handleDeleteWorkspace(id: string) {
+    if (workspaces.length <= 1) return;
+    if (!window.confirm("Delete this workspace?")) return;
+    await removeWorkspace(id);
+    if (id === activeId) {
+      const next = workspaces.find((w) => w.id !== id);
+      if (next) {
+        await switchWorkspace(next.id);
+        setActiveId(next.id);
+        await reload();
+      }
+    }
+    await loadWorkspaces();
+  }
+
   const ensureFolder = useCallback(async (dir: string) => {
     if (!activeFolders.includes(dir)) {
       await connectFolder(activeId, dir);
@@ -234,6 +251,19 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
       await reload();
     }
   }, [activeFolders, activeId, loadWorkspaces, reload]);
+
+  const handleAddFolder = useCallback(async (dir: string) => {
+    setPicker(null);
+    await connectFolder(activeId, dir);
+    await loadWorkspaces();
+    await reload();
+  }, [activeId, loadWorkspaces, reload]);
+
+  const handleRemoveFolder = useCallback(async (root: string) => {
+    await disconnectFolder(activeId, root);
+    await loadWorkspaces();
+    await reload();
+  }, [activeId, loadWorkspaces, reload]);
 
   useEffect(() => {
     const hub = connectHub(
@@ -680,10 +710,13 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
           onAddTerminal={() => addTerminal(presetById("bash"))}
           folders={folders}
           onOpenFile={onOpenFile}
+          onAddFolder={() => setPicker("folder")}
+          onRemoveFolder={handleRemoveFolder}
           subagents={subagents}
           workspaces={workspaces}
           activeId={activeId}
           onSwitchWorkspace={handleSwitch}
+          onDeleteWorkspace={handleDeleteWorkspace}
           onNewWorkspace={() => setPicker("new")}
         />
         {picker === "new" && (
@@ -691,6 +724,13 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
             title="New workspace — pick a folder"
             onCancel={() => setPicker(null)}
             onConfirm={handleNewWorkspace}
+          />
+        )}
+        {picker === "folder" && (
+          <DirectoryPicker
+            title="Add a folder to Files"
+            onCancel={() => setPicker(null)}
+            onConfirm={handleAddFolder}
           />
         )}
         {picker === "spawn" && pendingPresetId && (

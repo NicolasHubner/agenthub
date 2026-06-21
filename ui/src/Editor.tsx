@@ -72,38 +72,50 @@ export function Editor({ root, path, content, onClose }: EditorProps) {
   }, []);
 
   return (
-    <div className="editor-wrapper">
-      <div className="editor-header">
-        <span className="editor-filename">
+    <div className="file-drawer">
+      <div className="file-drawer-header">
+        <span className="file-drawer-path">
           {basename(path)}
-          {dirty && <span className="editor-dirty" aria-label="unsaved changes"> •</span>}
+          {dirty && <span style={{ color: "#f59e0b", marginLeft: 4 }}>●</span>}
         </span>
-        <div className="editor-actions">
+        <div style={{ display: "flex", gap: 6 }}>
           {isMarkdown && (
-            <button onClick={() => setPreview((p) => !p)}>
+            <button className="file-drawer-close" onClick={() => setPreview((p) => !p)}>
               {preview ? "Edit" : "Preview"}
             </button>
           )}
-          <button onClick={handleSave} disabled={saving || !dirty}>
-            {saving ? "Saving…" : "Save"}
+          <button
+            className="file-drawer-close"
+            onClick={handleSave}
+            disabled={saving || !dirty}
+            style={{ opacity: saving || !dirty ? 0.4 : 1 }}
+          >
+            {saving ? "…" : "Save"}
           </button>
-          <button onClick={onClose}>Close</button>
+          <button className="file-drawer-close" onClick={onClose}>✕</button>
         </div>
       </div>
-      {error && <div className="editor-error" role="alert">{error}</div>}
-      {isMarkdown && preview ? (
-        <div className="editor-preview">
-          <ReactMarkdown>{value}</ReactMarkdown>
+      {error && (
+        <div style={{ padding: "6px 14px", fontSize: 12, color: "#f87171", background: "#2a1a1a" }}>
+          {error}
         </div>
-      ) : (
-        <CodeMirror
-          value={value}
-          theme={dracula}
-          extensions={extensions}
-          onChange={handleChange}
-          basicSetup={{ lineNumbers: true }}
-        />
       )}
+      <div className="file-drawer-body">
+        {isMarkdown && preview ? (
+          <div className="viewer markdown">
+            <ReactMarkdown>{value}</ReactMarkdown>
+          </div>
+        ) : (
+          <CodeMirror
+            value={value}
+            theme={dracula}
+            extensions={extensions}
+            onChange={handleChange}
+            basicSetup={{ lineNumbers: true }}
+            style={{ height: "100%" }}
+          />
+        )}
+      </div>
     </div>
   );
 }
