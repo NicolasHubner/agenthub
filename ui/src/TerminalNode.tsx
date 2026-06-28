@@ -20,6 +20,8 @@ type Props = {
   onPortMouseUp: (id: string) => void;
   onDisconnect: (otherName: string) => void;
   connections: string[];
+  widgetConnections?: { id: string; title: string }[];
+  onDisconnectWidget?: (id: string) => void;
   linking: boolean;
   spaceHeld: boolean;
   selected: boolean;
@@ -37,6 +39,8 @@ export function TerminalNode({
   onPortMouseUp,
   onDisconnect,
   connections,
+  widgetConnections = [],
+  onDisconnectWidget = () => {},
   linking,
   spaceHeld,
   selected,
@@ -240,7 +244,7 @@ export function TerminalNode({
         <span className="node-badge" style={{ background: preset.color }}>
           {preset.badge}
         </span>
-        {connections.length > 0 && (
+        {(connections.length > 0 || widgetConnections.length > 0) && (
           <div className="node-gear-wrap">
             <button
               type="button"
@@ -263,7 +267,24 @@ export function TerminalNode({
                       onClick={(e) => {
                         e.stopPropagation();
                         onDisconnect(name);
-                        if (connections.length <= 1) setGearOpen(false);
+                        if (connections.length + widgetConnections.length <= 1) setGearOpen(false);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {widgetConnections.map((w) => (
+                  <div key={w.id} className="gear-menu-item">
+                    <span className="gear-peer-name">📓 {w.title}</span>
+                    <button
+                      type="button"
+                      className="gear-disconnect-btn"
+                      title={`Disconnect ${w.title}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDisconnectWidget(w.id);
+                        if (connections.length + widgetConnections.length <= 1) setGearOpen(false);
                       }}
                     >
                       ×
@@ -283,12 +304,24 @@ export function TerminalNode({
       </div>
       <div
         className={`node-port port-in ${linking ? "active" : ""}`}
+        onMouseDown={(e) => onPortMouseDown(node.id, e)}
+        onMouseUp={() => onPortMouseUp(node.id)}
+      />
+      <div
+        className={`node-port port-top ${linking ? "active" : ""}`}
+        onMouseDown={(e) => onPortMouseDown(node.id, e)}
         onMouseUp={() => onPortMouseUp(node.id)}
       />
       <div className="node-body" ref={hostRef} onMouseDown={onBodyMouseDown} />
       <div
         className={`node-port port-out ${linking ? "active" : ""}`}
         onMouseDown={(e) => onPortMouseDown(node.id, e)}
+        onMouseUp={() => onPortMouseUp(node.id)}
+      />
+      <div
+        className={`node-port port-bottom ${linking ? "active" : ""}`}
+        onMouseDown={(e) => onPortMouseDown(node.id, e)}
+        onMouseUp={() => onPortMouseUp(node.id)}
       />
       <div className="resize-handle" onMouseDown={onResizeMouseDown} />
     </div>

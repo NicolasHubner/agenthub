@@ -803,13 +803,23 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
                   const node = nodes.find((n) => n.id === nodeId);
                   const widget = widgets.find((w) => w.id === widgetId);
                   if (!node || !widget) return null;
-                  const p1 = portFor(node, "out");
-                  const p2 = { x: widget.x, y: widget.y + widget.height / 2 };
+                  const widgetLeft = widget.x + widget.width / 2 < node.x + node.width / 2;
+                  const p1 = portFor(node, widgetLeft ? "in" : "out");
+                  const p2 = {
+                    x: widgetLeft ? widget.x + widget.width : widget.x,
+                    y: widget.y + widget.height / 2,
+                  };
                   return (
                     <path
                       key={`we-${nodeId}-${widgetId}`}
                       d={cablePath(p1.x, p1.y, p2.x, p2.y)}
                       className="edge-cable widget-edge"
+                      style={{ cursor: "pointer" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setWidgetEdges((we) =>
+                          we.filter(([nid, wid]) => !(nid === nodeId && wid === widgetId)));
+                      }}
                     />
                   );
                 })}
@@ -843,6 +853,10 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
                 const nodeConnections = edges
                   .filter(([a, b]) => a === node.name || b === node.name)
                   .map(([a, b]) => (a === node.name ? b : a));
+                const nodeWidgets = widgetEdges
+                  .filter(([nid]) => nid === node.id)
+                  .map(([, wid]) => widgets.find((w) => w.id === wid))
+                  .filter(Boolean) as WidgetModel[];
                 return (
                   <TerminalNode
                     key={node.id}
@@ -856,6 +870,14 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
                     onPortMouseDown={startLink}
                     onPortMouseUp={finishLink}
                     connections={nodeConnections}
+                    widgetConnections={nodeWidgets.map((w) => ({
+                      id: w.id,
+                      title: w.title || "Notepad",
+                    }))}
+                    onDisconnectWidget={(wid) =>
+                      setWidgetEdges((we) =>
+                        we.filter(([nid, w]) => !(nid === node.id && w === wid)))
+                    }
                     onDisconnect={(otherName) => {
                       if (ws && ws.readyState === WebSocket.OPEN)
                         hubDisconnect(ws, node.name, otherName);
