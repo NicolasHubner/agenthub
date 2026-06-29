@@ -575,3 +575,32 @@ body {
 
 .open-error { position: fixed; bottom: 16px; right: 16px; background: #ff5555;
   color: #f8f8f2; padding: 8px 14px; border-radius: 6px; cursor: pointer; z-index: 2000; }
+
+/* ── EditorPanel collapsed strip ── */
+.editor-panel--collapsed {
+  width: 36px !important;
+  overflow: hidden;
+  cursor: pointer;
+  justify-content: center;
+  align-items: center;
+}
+.editor-expand-btn {
+  writing-mode: vertical-rl;
+  background: none; border: none;
+  color: #6b7280; cursor: pointer;
+  font-size: 20px; line-height: 1;
+  padding: 12px 0; width: 36px;
+  display: flex; align-items: center; justify-content: center;
+  height: 100%;
+  transition: color 0.15s;
+}
+.editor-expand-btn:hover { color: #cdd6f4; background: #2a2a3d; }
+.editor-collapse-btn {
+  margin-left: auto; flex-shrink: 0;
+  background: none; border: none;
+  color: #6b7280; cursor: pointer;
+  font-size: 16px; padding: 0 10px; height: 36px;
+  display: flex; align-items: center;
+  transition: color 0.15s;
+}
+.editor-collapse-btn:hover { color: #cdd6f4; background: #323245; }

@@ -35,6 +35,7 @@ export const EditorPanel = forwardRef<EditorPanelHandle, EditorPanelProps>(
   function EditorPanel({ onActiveChange }, ref) {
     const [tabs, setTabs] = useState<Tab[]>([]);
     const [activeIdx, setActiveIdx] = useState(0);
+    const [collapsed, setCollapsed] = useState(false);
     const [width, setWidth] = useState<number>(() => {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -61,6 +62,7 @@ export const EditorPanel = forwardRef<EditorPanelHandle, EditorPanelProps>(
         // Skip if fetch already in-flight
         if (inFlight.current.has(key)) return;
         inFlight.current.add(key);
+        setCollapsed(false);
         getFile(root, path)
           .then((fc) => {
             const newIdx = tabsRef.current.length;
@@ -136,6 +138,22 @@ export const EditorPanel = forwardRef<EditorPanelHandle, EditorPanelProps>(
 
     const clampedActiveIdx = tabs[activeIdx] ? activeIdx : 0;
     const activeTab = tabs[clampedActiveIdx];
+    const dirtyCount = tabs.filter(t => t.dirty).length;
+
+    if (collapsed) {
+      return (
+        <div className="editor-panel editor-panel--collapsed">
+          <button
+            className="editor-expand-btn"
+            onClick={() => setCollapsed(false)}
+            aria-label="Expand editor"
+            title={`${tabs.length} tab${tabs.length !== 1 ? "s" : ""}${dirtyCount ? ` · ${dirtyCount} unsaved` : ""}`}
+          >
+            ‹
+          </button>
+        </div>
+      );
+    }
 
     return (
       <div className="editor-panel" style={{ width }}>
@@ -160,6 +178,13 @@ export const EditorPanel = forwardRef<EditorPanelHandle, EditorPanelProps>(
               </button>
             </div>
           ))}
+          <button
+            className="editor-collapse-btn"
+            onClick={() => setCollapsed(true)}
+            aria-label="Collapse editor"
+          >
+            ›
+          </button>
         </div>
         <Editor
           key={tabKey(activeTab.root, activeTab.path)}
