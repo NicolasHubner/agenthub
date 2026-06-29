@@ -29,7 +29,7 @@ beforeEach(() => {
 });
 
 function renderWithRef() {
-  let ref!: React.RefObject<EditorPanelHandle | null>;
+  let ref!: React.RefObject<EditorPanelHandle>;
   function Wrapper() {
     ref = useRef<EditorPanelHandle>(null);
     return <EditorPanel ref={ref} />;
@@ -126,7 +126,7 @@ describe("EditorPanel", () => {
       .mockResolvedValueOnce({ content: "a" })
       .mockResolvedValueOnce({ content: "b" });
     const onActiveChange = vi.fn();
-    let ref!: React.RefObject<EditorPanelHandle | null>;
+    let ref!: React.RefObject<EditorPanelHandle>;
     function Wrapper() {
       ref = useRef<EditorPanelHandle>(null);
       return <EditorPanel ref={ref} onActiveChange={onActiveChange} />;
