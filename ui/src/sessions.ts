@@ -49,6 +49,20 @@ export async function fetchSessions(): Promise<SessionsResponse> {
   return r.json();
 }
 
+export type TmuxSession = {
+  name: string;
+  cwd: string;
+  attached: boolean;
+  dead: boolean;
+};
+
+export async function listTmuxSessions(): Promise<TmuxSession[]> {
+  const r = await fetch("/tmux/sessions");
+  if (!r.ok) throw new Error(`tmux sessions ${r.status}`);
+  const data = await r.json();
+  return data.sessions ?? [];
+}
+
 export async function saveSessions(snap: SessionSnapshot): Promise<void> {
   const r = await fetch("/sessions", {
     method: "PUT",

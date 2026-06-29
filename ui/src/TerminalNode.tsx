@@ -19,6 +19,7 @@ type Props = {
   onPortMouseDown: (id: string, e: React.MouseEvent) => void;
   onPortMouseUp: (id: string) => void;
   onDisconnect: (otherName: string) => void;
+  onOpenFile?: (path: string) => void;
   connections: string[];
   widgetConnections?: { id: string; title: string }[];
   onDisconnectWidget?: (id: string) => void;
@@ -44,6 +45,7 @@ export function TerminalNode({
   linking,
   spaceHeld,
   selected,
+  onOpenFile,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -51,7 +53,10 @@ export function TerminalNode({
   const ptyRef = useRef<ReturnType<typeof connectPty> | null>(null);
   const dragRef = useRef<{ ox: number; oy: number } | null>(null);
   const resizeRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
+  const onOpenFileRef = useRef(onOpenFile);
   const [gearOpen, setGearOpen] = useState(false);
+
+  useEffect(() => { onOpenFileRef.current = onOpenFile; }, [onOpenFile]);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -66,6 +71,28 @@ export function TerminalNode({
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(hostRef.current);
+    term.registerLinkProvider({
+      provideLinks(y: number, callback: (links: any[] | undefined) => void) {
+        const line = term.buffer.active.getLine(y - 1);
+        if (!line) { callback(undefined); return; }
+        const text = line.translateToString(true);
+        const re = /(?:^|[\s(["'`→])([a-zA-Z0-9][a-zA-Z0-9._/-]*\.(?:md|ts|tsx|js|jsx|rs|json|yaml|yml|toml|txt|py|sh|go|css|scss|html))/g;
+        const links: any[] = [];
+        let match;
+        while ((match = re.exec(text)) !== null) {
+          const path = match[1];
+          const prefixLen = match[0].length - path.length;
+          const startX = match.index + prefixLen + 1;
+          const endX = match.index + match[0].length;
+          links.push({
+            range: { start: { x: startX, y }, end: { x: endX, y } },
+            text: path,
+            activate(_e: MouseEvent, t: string) { onOpenFileRef.current?.(t); },
+          });
+        }
+        callback(links.length > 0 ? links : undefined);
+      },
+    });
     fitRef.current = fit;
     termRef.current = term;
 

@@ -20,6 +20,8 @@ type Props = {
   onAddTerminal: () => void;
   folders: FolderFiles[];
   onOpenFile: (root: string, path: string) => void;
+  activeRoot?: string;
+  activePath?: string;
   onAddFolder: () => void;
   onRemoveFolder: (root: string) => void;
   subagents?: SubagentSnapshot[];
@@ -46,6 +48,8 @@ export function WorkspaceSidebar({
   onAddTerminal,
   folders,
   onOpenFile,
+  activeRoot,
+  activePath,
   onAddFolder,
   onRemoveFolder,
   subagents = [],
@@ -204,7 +208,7 @@ export function WorkspaceSidebar({
         {filesOpen && (
           <div className="ws-file-tree">
             {folders.length > 0 ? (
-              <FileTree folders={folders} onSelect={onOpenFile} onRemoveFolder={onRemoveFolder} />
+              <FileTree folders={folders} onSelect={onOpenFile} onRemoveFolder={onRemoveFolder} activeRoot={activeRoot} activePath={activePath} />
             ) : (
               <p className="ws-empty">No folders — click + to add one</p>
             )}

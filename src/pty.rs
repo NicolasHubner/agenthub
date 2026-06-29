@@ -94,6 +94,52 @@ pub async fn kill_tmux_session(name: &str) {
         .await;
 }
 
+/// A persistent tmux session belonging to agenthub, surfaced to the UI so it can
+/// rebuild a terminal node and re-attach. `name` is the user-facing terminal name
+/// (the `agenthub-` prefix stripped).
+#[derive(serde::Serialize)]
+pub struct TmuxSession {
+    pub name: String,
+    pub cwd: String,
+    pub attached: bool,
+    pub dead: bool,
+}
+
+/// List agenthub-owned tmux sessions (best-effort). Returns an empty list when
+/// tmux is unavailable or no sessions exist.
+pub async fn list_tmux_sessions() -> Vec<TmuxSession> {
+    if !tmux_available() {
+        return Vec::new();
+    }
+    // One row per session: name, attached flag, current pane path, pane dead flag.
+    let fmt = "#{session_name}\t#{session_attached}\t#{pane_current_path}\t#{pane_dead}";
+    let out = tokio::process::Command::new("tmux")
+        .args(["list-sessions", "-F", fmt])
+        .output()
+        .await;
+    let stdout = match out {
+        Ok(o) if o.status.success() => o.stdout,
+        _ => return Vec::new(),
+    };
+    String::from_utf8_lossy(&stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut f = line.split('\t');
+            let raw = f.next()?;
+            let attached = f.next().unwrap_or("0");
+            let cwd = f.next().unwrap_or("").to_string();
+            let dead = f.next().unwrap_or("0");
+            let name = raw.strip_prefix("agenthub-")?.to_string();
+            Some(TmuxSession {
+                name,
+                cwd,
+                attached: attached == "1",
+                dead: dead == "1",
+            })
+        })
+        .collect()
+}
+
 fn inject_hub_env(cmd: &mut CommandBuilder, spawn: &SpawnMsg) {
     let port = std::env::var("AGENTHUB_PORT").unwrap_or_else(|_| "3000".into());
     cmd.env("AGENTHUB_NAME", &spawn.name);
@@ -151,16 +197,28 @@ fn tmux_command(spawn: &SpawnMsg, cwd: &str) -> CommandBuilder {
          tmux set-option -w remain-on-exit on 2>/dev/null; {}",
         agent_launch_script(&spawn.command)
     );
-    let mut cmd = CommandBuilder::new("tmux");
-    cmd.arg("new-session");
-    cmd.arg("-A");
-    cmd.arg("-s");
-    cmd.arg(session);
-    cmd.arg("-c");
-    cmd.arg(cwd);
-    cmd.arg("bash");
+    // Reattach logic: if the session exists but its pane is dead (process died
+    // on a crash/sleep while remain-on-exit froze it as `[exited]`), respawn it
+    // with a fresh working shell instead of attaching to the frozen pane.
+    // Live session -> attach (true persistence). No session -> create.
+    let session_q = shell_quote(&session);
+    let cwd_q = shell_quote(cwd);
+    let inner_q = shell_quote(&inner);
+    let wrapper = format!(
+        "unset TMUX TMUX_PANE; \
+         S={session_q}; C={cwd_q}; \
+         if tmux has-session -t \"$S\" 2>/dev/null; then \
+           if [ \"$(tmux list-panes -t \"$S\" -F '#{{pane_dead}}' 2>/dev/null | head -n1)\" = 1 ]; then \
+             tmux respawn-window -k -t \"$S\" -c \"$C\" bash -lc {inner_q}; \
+           fi; \
+           exec tmux attach -t \"$S\"; \
+         else \
+           exec tmux new-session -s \"$S\" -c \"$C\" bash -lc {inner_q}; \
+         fi"
+    );
+    let mut cmd = CommandBuilder::new("bash");
     cmd.arg("-lc");
-    cmd.arg(inner);
+    cmd.arg(wrapper);
     cmd.env("TERM", "xterm-256color");
     inject_hub_env(&mut cmd, spawn);
     cmd

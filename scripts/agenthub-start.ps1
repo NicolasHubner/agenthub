@@ -3,7 +3,7 @@
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
-$Port = if ($env:AGENTHUB_PORT) { $env:AGENTHUB_PORT } else { "3000" }
+$Port = if ($env:AGENTHUB_PORT) { $env:AGENTHUB_PORT } else { "3070" }
 $Bin  = Join-Path $Root "target\release\agenthub.exe"
 $Ui   = Join-Path $Root "ui\dist"
 $Url  = "http://127.0.0.1:$Port"

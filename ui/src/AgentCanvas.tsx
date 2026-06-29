@@ -33,6 +33,7 @@ import {
   DEFAULT_TERM_WIDTH,
   DEFAULT_VIEW,
   fetchSessions,
+  listTmuxSessions,
   presetById,
   saveSessions,
   WIDGET_DEFAULTS,
@@ -52,6 +53,7 @@ import {
   type WorkspaceEntry,
 } from "./workspaces";
 import { DirectoryPicker } from "./DirectoryPicker";
+import { ThemeToggle } from "./ThemeToggle";
 
 let nextId = 1;
 let nextWidgetId = 1;
@@ -109,9 +111,11 @@ function allRects(nodes: NodeModel[], widgets: WidgetModel[]): Rect[] {
 
 interface AgentCanvasProps {
   onOpenFile: (root: string, path: string) => void;
+  activeRoot?: string;
+  activePath?: string;
 }
 
-export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
+export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasProps) {
   const hubRef = useRef<HubConnection | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [nodes, setNodes] = useState<NodeModel[]>([]);
@@ -210,7 +214,51 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
     getFolders().then(setFolders).catch(() => {});
   }, []);
 
+  // Restore orphaned tmux sessions: terminals alive in tmux but missing from the
+  // saved canvas layout (e.g. created then never persisted, or survived a crash).
+  // The saved layout always wins; we only add nodes for sessions not already shown.
+  const reconcileTmux = useCallback(async () => {
+    let sessions;
+    try {
+      sessions = await listTmuxSessions();
+    } catch { return; }
+    if (sessions.length === 0) return;
+    // Mirror the server-side sanitize so node.name matches the tmux session name.
+    const sanitize = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, "_");
+    setNodes((ns) => {
+      const known = new Set(ns.map((n) => sanitize(n.name)));
+      const orphans = sessions.filter((s) => !known.has(s.name));
+      if (orphans.length === 0) return ns;
+      const bash = presetById("bash");
+      const acc = [...ns];
+      for (const s of orphans) {
+        const { x, y } = nextCanvasPosition(allRects(acc, widgets), DEFAULT_TERM_WIDTH, DEFAULT_TERM_HEIGHT);
+        const node: NodeModel = {
+          id: `node-${nextId++}`,
+          name: s.name,
+          command: bash.command,
+          preset: bash.id,
+          cwd: s.cwd || ".",
+          x,
+          y,
+          width: DEFAULT_TERM_WIDTH,
+          height: DEFAULT_TERM_HEIGHT,
+        };
+        acc.push(node);
+      }
+      return acc;
+    });
+  }, [widgets]);
+
   useEffect(() => { void reload(); void loadWorkspaces(); }, [reload, loadWorkspaces]);
+
+  // Once the saved layout is loaded, fold in any orphaned tmux sessions (one-shot).
+  const reconciledRef = useRef(false);
+  useEffect(() => {
+    if (!loaded || reconciledRef.current) return;
+    reconciledRef.current = true;
+    void reconcileTmux();
+  }, [loaded, reconcileTmux]);
 
   async function handleSwitch(id: string) {
     if (id === activeId) return;
@@ -218,6 +266,8 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
     setActiveId(id);
     await reload();
     await loadWorkspaces();
+    // New workspace layout is loaded — restore its orphaned tmux sessions too.
+    await reconcileTmux();
   }
 
   const activeFolders = workspaces.find((w) => w.id === activeId)?.folders ?? [];
@@ -697,6 +747,7 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
         </div>
         <span className="hint">Link = permission to message · use agenthub-cli ask</span>
         {connectError && <span className="connect-error">{connectError}</span>}
+        <ThemeToggle />
       </header>
 
       <div className="maestri-body">
@@ -710,6 +761,8 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
           onAddTerminal={() => addTerminal(presetById("bash"))}
           folders={folders}
           onOpenFile={onOpenFile}
+          activeRoot={activeRoot}
+          activePath={activePath}
           onAddFolder={() => setPicker("folder")}
           onRemoveFolder={handleRemoveFolder}
           subagents={subagents}
@@ -885,6 +938,7 @@ export function AgentCanvas({ onOpenFile }: AgentCanvasProps) {
                     linking={!!linkFrom}
                     spaceHeld={spaceHeld}
                     selected={selectedId === node.id}
+                    onOpenFile={(path) => onOpenFile(node.cwd, path)}
                   />
                 );
               })}

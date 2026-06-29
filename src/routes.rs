@@ -336,6 +336,27 @@ async fn get_browse(Query(q): Query<BrowseQuery>) -> Result<Json<serde_json::Val
     })))
 }
 
+/// List persistent agenthub tmux sessions so the UI can restore orphaned
+/// terminals (sessions alive in tmux but absent from the saved canvas layout).
+/// Scoped to the active workspace: only sessions whose cwd lives under one of the
+/// active folders are returned, so a workspace never restores another's terminals.
+async fn get_tmux_sessions(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let roots: Vec<PathBuf> = {
+        let active = state.active.read().unwrap();
+        active.folders.iter().map(|w| w.root().to_path_buf()).collect()
+    };
+    let sessions: Vec<_> = crate::pty::list_tmux_sessions()
+        .await
+        .into_iter()
+        .filter(|s| {
+            // Empty cwd (unknown pane path) can't be attributed to a workspace; drop it.
+            !s.cwd.is_empty()
+                && roots.iter().any(|r| std::path::Path::new(&s.cwd).starts_with(r))
+        })
+        .collect();
+    Json(json!({ "sessions": sessions }))
+}
+
 async fn pty_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
         let hub = state.hub.clone();
@@ -474,6 +495,7 @@ pub fn app_router(active: SharedActive, hub: SharedHub, registry: Arc<Registry>)
         .route("/note", post(post_note))
         .route("/subagents", post(post_subagent))
         .route("/sessions", get(get_sessions).put(put_sessions))
+        .route("/tmux/sessions", get(get_tmux_sessions))
         .route("/files", get(get_files))
         .route("/file", get(get_file).put(put_file))
         .route("/browse", get(get_browse))

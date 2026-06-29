@@ -1,6 +1,6 @@
 ---
 name: agenthub
-description: Send messages between linked AI agents in AgentHub (like Maestri). Use when terminals are connected on the canvas and the user wants agents to coordinate via agenthub-cli ask, not raw terminal piping.
+description: Write to a Notepad widget or send messages between linked agents in AgentHub. Use when a terminal is connected on the canvas to a Notepad (write/append notes, living memory) or to another terminal (coordinate via agenthub-cli ask/note), not raw terminal piping. Triggers: write/save note, notepad, escrever no notepad, anotar.
 ---
 
 # AgentHub skill

@@ -6,6 +6,8 @@ interface Props {
   folders: FolderFiles[];
   onSelect: (root: string, path: string) => void;
   onRemoveFolder?: (root: string) => void;
+  activeRoot?: string;
+  activePath?: string;
 }
 
 // VS Code-inspired file extension colors
@@ -62,12 +64,16 @@ function DirNodeView({
   depth,
   onToggle,
   onSelect,
+  activeRoot,
+  activePath,
 }: {
   node: DirNode;
   root: string;
   depth: number;
   onToggle: (nodePath: string) => void;
   onSelect: (root: string, path: string) => void;
+  activeRoot?: string;
+  activePath?: string;
 }) {
   const indent = { paddingLeft: depth * 12 + "px" };
   return (
@@ -92,6 +98,8 @@ function DirNodeView({
               depth={depth + 1}
               onToggle={onToggle}
               onSelect={onSelect}
+              activeRoot={activeRoot}
+              activePath={activePath}
             />
           )}
         </div>
@@ -100,10 +108,11 @@ function DirNodeView({
         const fullPath = node.path ? node.path + "/" + file : file;
         const color = fileColor(file);
         const icon = fileIcon(file);
+        const isActive = root === activeRoot && fullPath === activePath;
         return (
           <button
             key={fullPath}
-            className="file"
+            className={isActive ? "file active" : "file"}
             style={{ ...indent, color }}
             onClick={() => onSelect(root, fullPath)}
           >
@@ -116,7 +125,7 @@ function DirNodeView({
   );
 }
 
-export function FileTree({ folders, onSelect, onRemoveFolder }: Props) {
+export function FileTree({ folders, onSelect, onRemoveFolder, activeRoot, activePath }: Props) {
   const [roots, setRoots] = useState<RootNode[]>(() => buildRoots(folders));
 
   useEffect(() => {
@@ -168,6 +177,8 @@ export function FileTree({ folders, onSelect, onRemoveFolder }: Props) {
                   depth={1}
                   onToggle={(nodePath) => handleToggle(idx, nodePath)}
                   onSelect={onSelect}
+                  activeRoot={activeRoot}
+                  activePath={activePath}
                 />
               </div>
             )}

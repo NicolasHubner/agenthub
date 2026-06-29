@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PORT="${AGENTHUB_PORT:-3000}"
+PORT="${AGENTHUB_PORT:-3070}"
 BIN="$ROOT/target/release/agenthub"
 UI="$ROOT/ui/dist"
 URL="http://127.0.0.1:$PORT"

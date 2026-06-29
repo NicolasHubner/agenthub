@@ -8,6 +8,15 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>AgentHub</title>
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("agenthub-theme");
+          if (t === "dark" || (!t && window.matchMedia("(prefers-color-scheme: dark)").matches))
+            document.documentElement.dataset.theme = "dark";
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
