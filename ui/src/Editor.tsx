@@ -14,6 +14,7 @@ interface EditorProps {
   onChange: (v: string) => void;
   onSaved: () => void;
   onClose: () => void;
+  showPath?: boolean;
 }
 
 function extFromPath(path: string): string {
@@ -26,7 +27,7 @@ function basename(path: string): string {
   return path.split("/").pop() ?? path;
 }
 
-export function Editor({ root, path, value, dirty, onChange, onSaved, onClose }: EditorProps) {
+export function Editor({ root, path, value, dirty, onChange, onSaved, onClose, showPath = true }: EditorProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
@@ -74,7 +75,7 @@ export function Editor({ root, path, value, dirty, onChange, onSaved, onClose }:
     <div className="file-drawer-header-wrapper">
       <div className="file-drawer-header">
         <span className="file-drawer-path">
-          {basename(path)}
+          {showPath && basename(path)}
           {dirty && (
             <span
               aria-label="unsaved changes"
