@@ -37,29 +37,40 @@ export const EditorPanel = forwardRef<EditorPanelHandle, EditorPanelProps>(
     const [activeIdx, setActiveIdx] = useState(0);
     const [width, setWidth] = useState<number>(() => {
       const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? parseInt(stored, 10) : DEFAULT_WIDTH;
+      if (stored) {
+        const n = parseInt(stored, 10);
+        return Number.isFinite(n) ? n : DEFAULT_WIDTH;
+      }
+      return DEFAULT_WIDTH;
     });
 
     const tabsRef = useRef(tabs);
     tabsRef.current = tabs;
 
+    const inFlight = useRef(new Set<string>());
+
     useImperativeHandle(ref, () => ({
       openFile(root: string, path: string) {
-        const existing = tabsRef.current.findIndex(
-          (t) => tabKey(t.root, t.path) === tabKey(root, path)
-        );
+        const key = tabKey(root, path);
+        // Activate existing tab
+        const existing = tabsRef.current.findIndex(t => tabKey(t.root, t.path) === key);
         if (existing !== -1) {
           setActiveIdx(existing);
           return;
         }
-        getFile(root, path).then((fc) => {
-          setTabs((prev) => {
+        // Skip if fetch already in-flight
+        if (inFlight.current.has(key)) return;
+        inFlight.current.add(key);
+        getFile(root, path)
+          .then((fc) => {
+            const newIdx = tabsRef.current.length;
             const newTab: Tab = { root, path, content: fc.content, value: fc.content, dirty: false };
-            const next = [...prev, newTab];
-            setActiveIdx(next.length - 1);
-            return next;
+            setTabs(prev => [...prev, newTab]);
+            setActiveIdx(newIdx);
+          })
+          .finally(() => {
+            inFlight.current.delete(key);
           });
-        });
       },
     }));
 
@@ -131,22 +142,23 @@ export const EditorPanel = forwardRef<EditorPanelHandle, EditorPanelProps>(
         <div className="editor-resize-handle" onMouseDown={handleResizeMouseDown} />
         <div className="editor-tabs">
           {tabs.map((tab, i) => (
-            <button
+            <div
               key={tabKey(tab.root, tab.path)}
               className={`editor-tab${i === clampedActiveIdx ? " active" : ""}`}
               onClick={() => setActiveIdx(i)}
+              role="tab"
+              aria-selected={i === clampedActiveIdx}
             >
               <span className="editor-tab-name">{basename(tab.path)}</span>
               {tab.dirty && <span className="editor-tab-dirty">●</span>}
-              <span
+              <button
                 className="editor-tab-close"
-                role="button"
                 aria-label={`close ${basename(tab.path)}`}
                 onClick={(e) => { e.stopPropagation(); handleCloseTab(i); }}
               >
                 ×
-              </span>
-            </button>
+              </button>
+            </div>
           ))}
         </div>
         <Editor
