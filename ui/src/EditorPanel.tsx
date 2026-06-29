@@ -55,9 +55,10 @@ export const EditorPanel = forwardRef<EditorPanelHandle, EditorPanelProps>(
         getFile(root, path).then((fc) => {
           setTabs((prev) => {
             const newTab: Tab = { root, path, content: fc.content, value: fc.content, dirty: false };
-            return [...prev, newTab];
+            const next = [...prev, newTab];
+            setActiveIdx(next.length - 1);
+            return next;
           });
-          setActiveIdx(tabsRef.current.length); // length before push = index of new tab
         });
       },
     }));
@@ -156,7 +157,7 @@ export const EditorPanel = forwardRef<EditorPanelHandle, EditorPanelProps>(
           dirty={activeTab.dirty}
           onChange={(val) => handleChange(clampedActiveIdx, val)}
           onSaved={() => handleSaved(clampedActiveIdx)}
-          onClose={() => setTabs([])}
+          onClose={() => handleCloseTab(clampedActiveIdx)}
           showPath={false}
         />
       </div>
