@@ -45,6 +45,11 @@ struct ResizeMsg {
     rows: u16,
 }
 
+/// Dedicated tmux socket name so agenthub never touches the user's own tmux
+/// server/sessions (sharing the default socket caused agenthub sessions to
+/// collide with unrelated terminal panes and leave hung clients behind).
+const TMUX_SOCKET: &str = "agenthub";
+
 fn tmux_available() -> bool {
     let path = std::env::var("PATH").unwrap_or_default();
     std::env::split_paths(&path).any(|dir| {
@@ -64,9 +69,8 @@ fn use_tmux() -> bool {
     enabled && tmux_available()
 }
 
-/// Stable tmux session name for a terminal, mirroring the sanitization used at spawn.
-pub fn tmux_session_name(name: &str) -> String {
-    let sanitized: String = name
+fn sanitize_tmux_part(value: &str) -> String {
+    value
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -75,19 +79,28 @@ pub fn tmux_session_name(name: &str) -> String {
                 '_'
             }
         })
-        .collect();
-    format!("agenthub-{sanitized}")
+        .collect()
+}
+
+/// Stable tmux session name for a terminal, scoped by workspace so same-named
+/// panes in different workspaces never attach to each other.
+pub fn tmux_session_name(workspace_id: &str, name: &str) -> String {
+    format!(
+        "agenthub-{}__{}",
+        sanitize_tmux_part(workspace_id),
+        sanitize_tmux_part(name)
+    )
 }
 
 /// Best-effort kill of a terminal's persistent tmux session (used when the UI
 /// permanently removes a terminal node). No-op when tmux is unavailable.
-pub async fn kill_tmux_session(name: &str) {
+pub async fn kill_tmux_session(workspace_id: &str, name: &str) {
     if !tmux_available() {
         return;
     }
-    let session = tmux_session_name(name);
+    let session = tmux_session_name(workspace_id, name);
     let _ = tokio::process::Command::new("tmux")
-        .args(["kill-session", "-t", &session])
+        .args(["-L", TMUX_SOCKET, "kill-session", "-t", &session])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -99,6 +112,7 @@ pub async fn kill_tmux_session(name: &str) {
 /// (the `agenthub-` prefix stripped).
 #[derive(serde::Serialize)]
 pub struct TmuxSession {
+    pub workspace_id: String,
     pub name: String,
     pub cwd: String,
     pub attached: bool,
@@ -114,7 +128,7 @@ pub async fn list_tmux_sessions() -> Vec<TmuxSession> {
     // One row per session: name, attached flag, current pane path, pane dead flag.
     let fmt = "#{session_name}\t#{session_attached}\t#{pane_current_path}\t#{pane_dead}";
     let out = tokio::process::Command::new("tmux")
-        .args(["list-sessions", "-F", fmt])
+        .args(["-L", TMUX_SOCKET, "list-sessions", "-F", fmt])
         .output()
         .await;
     let stdout = match out {
@@ -129,9 +143,11 @@ pub async fn list_tmux_sessions() -> Vec<TmuxSession> {
             let attached = f.next().unwrap_or("0");
             let cwd = f.next().unwrap_or("").to_string();
             let dead = f.next().unwrap_or("0");
-            let name = raw.strip_prefix("agenthub-")?.to_string();
+            let rest = raw.strip_prefix("agenthub-")?;
+            let (workspace_id, name) = rest.split_once("__").unwrap_or(("", rest));
             Some(TmuxSession {
-                name,
+                workspace_id: workspace_id.to_string(),
+                name: name.to_string(),
                 cwd,
                 attached: attached == "1",
                 dead: dead == "1",
@@ -187,14 +203,15 @@ fn shell_command(spawn: &SpawnMsg, cwd: &str) -> CommandBuilder {
     cmd
 }
 
-fn tmux_command(spawn: &SpawnMsg, cwd: &str) -> CommandBuilder {
-    let session = tmux_session_name(&spawn.name);
+fn tmux_command(workspace_id: &str, spawn: &SpawnMsg, cwd: &str) -> CommandBuilder {
+    let session = tmux_session_name(workspace_id, &spawn.name);
+    let legacy_session = format!("agenthub-{}", sanitize_tmux_part(&spawn.name));
     // remain-on-exit keeps the pane (and session) alive after the process
     // exits, so reopening the UI always re-attaches to the exact prior state
     // instead of respawning a fresh shell.
     let inner = format!(
         "export TERM=xterm-256color COLORTERM=truecolor; \
-         tmux set-option -w remain-on-exit on 2>/dev/null; {}",
+         tmux -L {TMUX_SOCKET} set-option -w remain-on-exit on 2>/dev/null; {}",
         agent_launch_script(&spawn.command)
     );
     // Reattach logic: if the session exists but its pane is dead (process died
@@ -202,18 +219,23 @@ fn tmux_command(spawn: &SpawnMsg, cwd: &str) -> CommandBuilder {
     // with a fresh working shell instead of attaching to the frozen pane.
     // Live session -> attach (true persistence). No session -> create.
     let session_q = shell_quote(&session);
+    let legacy_session_q = shell_quote(&legacy_session);
     let cwd_q = shell_quote(cwd);
     let inner_q = shell_quote(&inner);
     let wrapper = format!(
         "unset TMUX TMUX_PANE; \
-         S={session_q}; C={cwd_q}; \
-         if tmux has-session -t \"$S\" 2>/dev/null; then \
-           if [ \"$(tmux list-panes -t \"$S\" -F '#{{pane_dead}}' 2>/dev/null | head -n1)\" = 1 ]; then \
-             tmux respawn-window -k -t \"$S\" -c \"$C\" bash -lc {inner_q}; \
+         T='tmux -L {TMUX_SOCKET}'; \
+         S={session_q}; L={legacy_session_q}; C={cwd_q}; \
+         if ! $T has-session -t \"$S\" 2>/dev/null && $T has-session -t \"$L\" 2>/dev/null; then \
+           $T rename-session -t \"$L\" \"$S\" 2>/dev/null || true; \
+         fi; \
+         if $T has-session -t \"$S\" 2>/dev/null; then \
+           if [ \"$($T list-panes -t \"$S\" -F '#{{pane_dead}}' 2>/dev/null | head -n1)\" = 1 ]; then \
+             $T respawn-window -k -t \"$S\" -c \"$C\" bash -lc {inner_q}; \
            fi; \
-           exec tmux attach -t \"$S\"; \
+           exec $T attach -t \"$S\"; \
          else \
-           exec tmux new-session -s \"$S\" -c \"$C\" bash -lc {inner_q}; \
+           exec $T new-session -s \"$S\" -c \"$C\" bash -lc {inner_q}; \
          fi"
     );
     let mut cmd = CommandBuilder::new("bash");
@@ -229,7 +251,12 @@ async fn send_error(ws_tx: &mut futures::stream::SplitSink<WebSocket, Message>, 
     let _ = ws_tx.send(Message::Text(err.to_string())).await;
 }
 
-pub async fn handle_pty_socket(hub: SharedHub, folders: Vec<Arc<crate::workspace::Workspace>>, socket: WebSocket) {
+pub async fn handle_pty_socket(
+    hub: SharedHub,
+    workspace_id: String,
+    folders: Vec<Arc<crate::workspace::Workspace>>,
+    socket: WebSocket,
+) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     let first = match ws_rx.next().await {
@@ -251,8 +278,15 @@ pub async fn handle_pty_socket(hub: SharedHub, folders: Vec<Arc<crate::workspace
     let cwd = match folders.iter().find_map(|w| w.resolve_dir(&spawn.cwd).ok()) {
         Some(p) => p,
         None => {
-            send_error(&mut ws_tx, "invalid cwd (must be inside a workspace folder)").await;
-            return;
+            // cwd not inside any workspace folder — fall back to the first workspace root.
+            // Never use arbitrary absolute paths (sandbox escape).
+            match folders.first() {
+                Some(w) => w.root().to_path_buf(),
+                None => {
+                    send_error(&mut ws_tx, "invalid cwd (must be inside a workspace folder)").await;
+                    return;
+                }
+            }
         }
     };
     let cwd_str = cwd.display().to_string();
@@ -272,7 +306,7 @@ pub async fn handle_pty_socket(hub: SharedHub, folders: Vec<Arc<crate::workspace
     };
 
     let cmd = if use_tmux() {
-        tmux_command(&spawn, &cwd_str)
+        tmux_command(&workspace_id, &spawn, &cwd_str)
     } else {
         shell_command(&spawn, &cwd_str)
     };
@@ -405,7 +439,7 @@ pub async fn handle_pty_socket(hub: SharedHub, folders: Vec<Arc<crate::workspace
 
 #[cfg(test)]
 mod tests {
-    use super::agent_launch_script;
+    use super::{agent_launch_script, tmux_session_name};
 
     #[test]
     fn shell_preset_is_interactive() {
@@ -419,5 +453,14 @@ mod tests {
         let script = agent_launch_script("codex");
         assert!(script.contains("'codex'"));
         assert!(script.contains("exec") && script.contains(" -i"));
+    }
+
+    #[test]
+    fn tmux_session_names_are_workspace_scoped() {
+        assert_eq!(tmux_session_name("ws-01", "alpha"), "agenthub-ws-01__alpha");
+        assert_ne!(
+            tmux_session_name("ws-01", "alpha"),
+            tmux_session_name("ws-02", "alpha")
+        );
     }
 }

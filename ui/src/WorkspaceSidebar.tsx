@@ -29,6 +29,7 @@ type Props = {
   activeId: string;
   onSwitchWorkspace: (id: string) => void;
   onDeleteWorkspace: (id: string) => void;
+  onRenameWorkspace: (id: string) => void;
   onNewWorkspace: () => void;
 };
 
@@ -57,6 +58,7 @@ export function WorkspaceSidebar({
   activeId,
   onSwitchWorkspace,
   onDeleteWorkspace,
+  onRenameWorkspace,
   onNewWorkspace,
 }: Props) {
   const [filesOpen, setFilesOpen] = useState(false);
@@ -70,34 +72,48 @@ export function WorkspaceSidebar({
       </div>
 
       <div className="ws-list">
-        {workspaces.map((w) => (
-          <button
-            key={w.id}
-            type="button"
-            className={`ws-active${w.id === activeId ? " current" : ""}`}
-            onClick={() => onSwitchWorkspace(w.id)}
-            title={w.folders.join("\n")}
-          >
-            <span className="ws-dot" />
-            <div className="ws-active-info">
-              <strong>{w.name}</strong>
-              <span className="ws-cwd">{w.folders.length} folder{w.folders.length === 1 ? "" : "s"}</span>
-            </div>
-            {w.id === activeId && <span className="ws-count">{items.length}</span>}
-            {workspaces.length > 1 && (
+        {workspaces.map((w) => {
+          const lastDir = w.folders[w.folders.length - 1];
+          const shortName = lastDir ? lastDir.split('/').filter(Boolean).pop() || '/' : '';
+          return (
+            <button
+              key={w.id}
+              type="button"
+              className={`ws-active${w.id === activeId ? " current" : ""}`}
+              onClick={() => onSwitchWorkspace(w.id)}
+              title={w.folders.join("\n")}
+            >
+              <span className="ws-dot" />
+              <div className="ws-active-info">
+                <strong>{w.name}</strong>
+                <span className="ws-cwd">{shortName}</span>
+              </div>
+              {w.id === activeId && <span className="ws-count">{items.length}</span>}
               <span
-                className="ws-delete"
+                className="ws-rename"
                 role="button"
                 tabIndex={0}
-                title="Delete workspace"
-                onClick={(e) => { e.stopPropagation(); onDeleteWorkspace(w.id); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onDeleteWorkspace(w.id); } }}
+                title="Rename workspace"
+                onClick={(e) => { e.stopPropagation(); onRenameWorkspace(w.id); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onRenameWorkspace(w.id); } }}
               >
-                ×
+                Aa
               </span>
-            )}
-          </button>
-        ))}
+              {workspaces.length > 1 && (
+                <span
+                  className="ws-delete"
+                  role="button"
+                  tabIndex={0}
+                  title="Delete workspace"
+                  onClick={(e) => { e.stopPropagation(); onDeleteWorkspace(w.id); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onDeleteWorkspace(w.id); } }}
+                >
+                  ×
+                </span>
+              )}
+            </button>
+          );
+        })}
         <button type="button" className="ws-new" onClick={onNewWorkspace}>+ New workspace</button>
       </div>
 

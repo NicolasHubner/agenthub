@@ -51,8 +51,11 @@ export function TerminalNode({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const ptyRef = useRef<ReturnType<typeof connectPty> | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ ox: number; oy: number } | null>(null);
   const resizeRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const pendingRef = useRef<{ x?: number; y?: number; w?: number; h?: number } | null>(null);
   const onOpenFileRef = useRef(onOpenFile);
   const [gearOpen, setGearOpen] = useState(false);
 
@@ -134,6 +137,17 @@ export function TerminalNode({
     fitRef.current.fit();
     return () => ro.disconnect();
   }, [node.width, node.height]);
+
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    const raf = requestAnimationFrame(() => {
+      fitRef.current?.fit();
+      ptyRef.current?.resize(term.cols, term.rows);
+      if (term.rows > 0) term.refresh(0, term.rows - 1);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [zoom]);
 
   // Focus the terminal when it becomes the selected pane (keyboard navigation).
   useEffect(() => {
@@ -218,35 +232,70 @@ export function TerminalNode({
   }
 
   useEffect(() => {
+    function flush() {
+      rafRef.current = null;
+      const p = pendingRef.current;
+      if (!p) return;
+      pendingRef.current = null;
+      const el = rootRef.current;
+      if (p.x !== undefined && p.y !== undefined) {
+        if (el) {
+          el.style.left = `${p.x}px`;
+          el.style.top = `${p.y}px`;
+        }
+        onMove(node.id, p.x, p.y);
+      }
+      if (p.w !== undefined && p.h !== undefined) {
+        if (el) {
+          el.style.width = `${p.w}px`;
+          el.style.height = `${p.h}px`;
+        }
+        onResize(node.id, p.w, p.h);
+      }
+    }
     function handleMouseMove(e: MouseEvent) {
       if (dragRef.current) {
         const c = screenToCanvas(e.clientX, e.clientY);
-        onMove(node.id, c.x - dragRef.current.ox, c.y - dragRef.current.oy);
+        pendingRef.current = {
+          ...pendingRef.current,
+          x: c.x - dragRef.current.ox,
+          y: c.y - dragRef.current.oy,
+        };
       }
       if (resizeRef.current) {
         const dw = (e.clientX - resizeRef.current.x) / zoom;
         const dh = (e.clientY - resizeRef.current.y) / zoom;
-        onResize(
-          node.id,
-          Math.max(300, resizeRef.current.w + dw),
-          Math.max(180, resizeRef.current.h + dh),
-        );
+        pendingRef.current = {
+          ...pendingRef.current,
+          w: Math.max(300, resizeRef.current.w + dw),
+          h: Math.max(180, resizeRef.current.h + dh),
+        };
+      }
+      if (pendingRef.current && rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(flush);
       }
     }
     function onUp() {
       dragRef.current = null;
       resizeRef.current = null;
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      flush();
     }
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", onUp);
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", onUp);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [node.id, node.width, node.height, onMove, onResize, screenToCanvas, zoom]);
+  }, [node.id, onMove, onResize, screenToCanvas, zoom]);
 
   return (
     <div
+      ref={rootRef}
       className={`terminal-node${linking ? " link-target" : ""}${selected ? " selected" : ""}`}
       style={
         {

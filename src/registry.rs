@@ -140,12 +140,14 @@ impl Registry {
         self.persist(&data);
     }
 
-    pub fn rename(&self, id: &str, name: String) {
+    pub fn rename(&self, id: &str, name: String) -> bool {
         let mut data = self.data.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(w) = data.workspaces.iter_mut().find(|w| w.id == id) {
             w.name = name;
+            self.persist(&data);
+            return true;
         }
-        self.persist(&data);
+        false
     }
 
     pub fn add_folder(&self, id: &str, dir: String) {

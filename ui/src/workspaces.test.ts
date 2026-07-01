@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { listWorkspaces, createWorkspace, switchWorkspace, connectFolder } from "./workspaces";
+import { listWorkspaces, createWorkspace, switchWorkspace, connectFolder, renameWorkspace } from "./workspaces";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -30,5 +30,16 @@ describe("workspaces client", () => {
     await connectFolder("ws-01", "/d");
     const calls = fetchMock.mock.calls as unknown as [string][];
     expect(calls[0][0]).toBe("/workspaces/ws-01/folders");
+  });
+
+  it("renameWorkspace PATCHes the workspace name", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    await renameWorkspace("ws-01", "New name");
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    const [url, opts] = calls[0];
+    expect(url).toBe("/workspaces/ws-01");
+    expect(opts.method).toBe("PATCH");
+    expect(JSON.parse(opts.body as string)).toEqual({ name: "New name" });
   });
 });

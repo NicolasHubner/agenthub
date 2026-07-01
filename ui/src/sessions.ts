@@ -40,6 +40,7 @@ export const WIDGET_DEFAULTS: Record<WidgetKind, { width: number; height: number
 };
 
 export type SessionsResponse = SessionSnapshot & {
+  workspaceId: string;
   workspace: string;
 };
 

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use agenthub::hub::Hub;
 use agenthub::protocol::ServerMessage;
 use tokio::sync::mpsc;
@@ -13,9 +11,9 @@ fn register_and_connect() {
     let hub = Hub::new();
     let (tx_a, _) = agent_tx();
     let (tx_b, _) = agent_tx();
-    hub.register("a".into(), vec!["test".into()], Some(tx_a), None)
+    hub.register("a".into(), vec!["test".into()], Some(tx_a), None, None)
         .unwrap();
-    hub.register("b".into(), vec![], Some(tx_b), None).unwrap();
+    hub.register("b".into(), vec![], Some(tx_b), None, None).unwrap();
     hub.connect("a", "b").unwrap();
 
     let state = hub.state();
@@ -33,8 +31,8 @@ fn msg_requires_edge() {
     let hub = Hub::new();
     let (tx_a, _) = agent_tx();
     let (tx_b, _) = agent_tx();
-    hub.register("a".into(), vec![], Some(tx_a), None).unwrap();
-    hub.register("b".into(), vec![], Some(tx_b), None).unwrap();
+    hub.register("a".into(), vec![], Some(tx_a), None, None).unwrap();
+    hub.register("b".into(), vec![], Some(tx_b), None, None).unwrap();
     let err = hub.route_msg("a", "b", "hi").unwrap_err();
     assert!(matches!(err, ServerMessage::Error { .. }));
 }
@@ -44,8 +42,8 @@ fn msg_delivers_with_edge() {
     let hub = Hub::new();
     let (tx_a, _) = agent_tx();
     let (tx_b, mut rx_b) = agent_tx();
-    hub.register("a".into(), vec![], Some(tx_a), None).unwrap();
-    hub.register("b".into(), vec![], Some(tx_b), None).unwrap();
+    hub.register("a".into(), vec![], Some(tx_a), None, None).unwrap();
+    hub.register("b".into(), vec![], Some(tx_b), None, None).unwrap();
     hub.connect("a", "b").unwrap();
     hub.route_msg("a", "b", "hello").unwrap();
     let json = rx_b.try_recv().unwrap();

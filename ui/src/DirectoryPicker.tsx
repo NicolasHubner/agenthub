@@ -5,9 +5,10 @@ type Props = {
   title: string;
   onCancel: () => void;
   onConfirm: (dir: string) => void;
+  initialPath?: string;
 };
 
-export function DirectoryPicker({ title, onCancel, onConfirm }: Props) {
+export function DirectoryPicker({ title, onCancel, onConfirm, initialPath }: Props) {
   const [view, setView] = useState<BrowseResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,8 +22,8 @@ export function DirectoryPicker({ title, onCancel, onConfirm }: Props) {
   }
 
   useEffect(() => {
-    go(""); // start at home
-  }, []);
+    go(initialPath ?? "");
+  }, [initialPath]);
 
   return (
     <div className="picker-backdrop" onClick={onCancel}>

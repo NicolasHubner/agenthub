@@ -298,7 +298,15 @@ body {
   display: grid; place-items: center; cursor: pointer;
   opacity: 0; transition: opacity .1s, background .1s, color .1s;
 }
+.ws-rename {
+  font-size: 10px; line-height: 1; color: #9ca3af;
+  width: 22px; height: 18px; border-radius: 999px;
+  display: grid; place-items: center; cursor: pointer;
+  opacity: 0; transition: opacity .1s, background .1s, color .1s;
+}
+.ws-active:hover .ws-rename,
 .ws-active:hover .ws-delete { opacity: 1; }
+.ws-rename:hover { background: rgba(99,102,241,.12); color: #6366f1; }
 .ws-delete:hover { background: rgba(239,68,68,.12); color: #ef4444; }
 .ws-section { border-top: 1px solid var(--border-section); }
 .ws-section-title {

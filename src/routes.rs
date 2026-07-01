@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -49,6 +50,86 @@ impl ActiveWorkspace {
     }
 }
 
+fn normalize_workspace_sessions(
+    _entry: &WorkspaceEntry,
+    folders: &[Arc<Workspace>],
+    mut snap: SessionSnapshot,
+) -> (SessionSnapshot, bool) {
+    let mut changed = false;
+    let mut renamed = HashMap::new();
+    let mut used_names = HashSet::new();
+    let mut kept_ids = HashSet::new();
+    let old_terminals = std::mem::take(&mut snap.terminals);
+    let old_edges = std::mem::take(&mut snap.edges);
+    let old_widget_edges = std::mem::take(&mut snap.widget_edges);
+    let mut terminals = Vec::with_capacity(old_terminals.len());
+
+    for mut terminal in old_terminals {
+        let cwd_ok = folders.iter().any(|w| w.resolve_dir(&terminal.cwd).is_ok());
+        if !cwd_ok {
+            changed = true;
+            continue;
+        }
+
+        let original_name = terminal.name.clone();
+        let base_name = terminal.name.trim().to_string();
+        let base_name = if base_name.is_empty() {
+            "agent".to_string()
+        } else {
+            base_name
+        };
+        let mut next_name = base_name.clone();
+        let mut n = 2;
+        while used_names.contains(&next_name) {
+            next_name = format!("{base_name}-{n}");
+            n += 1;
+        }
+        if next_name != terminal.name {
+            terminal.name = next_name.clone();
+            changed = true;
+        }
+        renamed.insert(original_name, next_name);
+        used_names.insert(terminal.name.clone());
+        kept_ids.insert(terminal.id.clone());
+        terminals.push(terminal);
+    }
+
+    let mut edge_seen = HashSet::new();
+    let edges = old_edges
+        .into_iter()
+        .filter_map(|[a, b]| {
+            let a = renamed.get(&a).cloned()?;
+            let b = renamed.get(&b).cloned()?;
+            if a == b {
+                changed = true;
+                return None;
+            }
+            let key = if a <= b { (a.clone(), b.clone()) } else { (b.clone(), a.clone()) };
+            if !edge_seen.insert(key) {
+                changed = true;
+                return None;
+            }
+            Some([a, b])
+        })
+        .collect();
+
+    let widget_edges = old_widget_edges
+        .into_iter()
+        .filter(|[node_id, _]| {
+            let keep = kept_ids.contains(node_id);
+            if !keep {
+                changed = true;
+            }
+            keep
+        })
+        .collect();
+
+    snap.terminals = terminals;
+    snap.edges = edges;
+    snap.widget_edges = widget_edges;
+    (snap, changed)
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub active: SharedActive,
@@ -77,7 +158,12 @@ pub fn build_active(entry: &WorkspaceEntry) -> ActiveWorkspace {
             }
         }
     }
-    let sessions = Arc::new(SessionStore::new_in(&state_dir));
+    let store = SessionStore::new_in(&state_dir);
+    let (snap, changed) = normalize_workspace_sessions(entry, &folders, store.get());
+    if changed {
+        let _ = store.save(snap);
+    }
+    let sessions = Arc::new(store);
     ActiveWorkspace { id: entry.id.clone(), folders, sessions }
 }
 
@@ -109,14 +195,17 @@ async fn get_state(State(state): State<AppState>) -> Json<serde_json::Value> {
 }
 
 async fn get_sessions(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let name = state
+    let entry = state
         .registry
-        .active_entry()
-        .map(|e| e.name)
+        .active_entry();
+    let name = entry
+        .as_ref()
+        .map(|e| e.name.clone())
         .unwrap_or_else(|| "Workspace".into());
     let active = state.active.read().unwrap();
     let snap = active.sessions.get();
     Json(json!({
+        "workspaceId": active.id.clone(),
         "workspace": name,
         "terminals": snap.terminals,
         "widgets": snap.widgets,
@@ -130,13 +219,21 @@ async fn put_sessions(
     State(state): State<AppState>,
     Json(body): Json<SessionSnapshot>,
 ) -> Result<StatusCode, ApiError> {
-    let sessions = state.active.read().unwrap().sessions.clone();
+    let (workspace_id, folders, sessions) = {
+        let active = state.active.read().unwrap();
+        (active.id.clone(), active.folders.clone(), active.sessions.clone())
+    };
+    let entry = state
+        .registry
+        .entry(&workspace_id)
+        .ok_or(ApiError(StatusCode::NOT_FOUND, "unknown workspace"))?;
+    let (body, _) = normalize_workspace_sessions(&entry, &folders, body);
     let prev: std::collections::HashSet<String> =
         sessions.get().terminals.into_iter().map(|t| t.name).collect();
     let next: std::collections::HashSet<String> =
         body.terminals.iter().map(|t| t.name.clone()).collect();
     for removed in prev.difference(&next) {
-        crate::pty::kill_tmux_session(removed).await;
+        crate::pty::kill_tmux_session(&workspace_id, removed).await;
     }
     sessions
         .save(body)
@@ -341,16 +438,20 @@ async fn get_browse(Query(q): Query<BrowseQuery>) -> Result<Json<serde_json::Val
 /// Scoped to the active workspace: only sessions whose cwd lives under one of the
 /// active folders are returned, so a workspace never restores another's terminals.
 async fn get_tmux_sessions(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let roots: Vec<PathBuf> = {
+    let (workspace_id, roots): (String, Vec<PathBuf>) = {
         let active = state.active.read().unwrap();
-        active.folders.iter().map(|w| w.root().to_path_buf()).collect()
+        (
+            active.id.clone(),
+            active.folders.iter().map(|w| w.root().to_path_buf()).collect(),
+        )
     };
     let sessions: Vec<_> = crate::pty::list_tmux_sessions()
         .await
         .into_iter()
         .filter(|s| {
             // Empty cwd (unknown pane path) can't be attributed to a workspace; drop it.
-            !s.cwd.is_empty()
+            (s.workspace_id == workspace_id || s.workspace_id.is_empty())
+                && !s.cwd.is_empty()
                 && roots.iter().any(|r| std::path::Path::new(&s.cwd).starts_with(r))
         })
         .collect();
@@ -360,9 +461,11 @@ async fn get_tmux_sessions(State(state): State<AppState>) -> Json<serde_json::Va
 async fn pty_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
         let hub = state.hub.clone();
-        let folders = state.active.read().unwrap().folders.clone();
+        let active = state.active.read().unwrap();
+        let workspace_id = active.id.clone();
+        let folders = active.folders.clone();
         async move {
-            handle_pty_socket(hub, folders, socket).await;
+            handle_pty_socket(hub, workspace_id, folders, socket).await;
         }
     })
 }
@@ -443,9 +546,15 @@ async fn patch_workspace(
     State(state): State<AppState>,
     AxPath(id): AxPath<String>,
     Json(body): Json<RenameBody>,
-) -> StatusCode {
-    state.registry.rename(&id, body.name);
-    StatusCode::NO_CONTENT
+) -> Result<StatusCode, ApiError> {
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "empty workspace name"));
+    }
+    if !state.registry.rename(&id, name.to_string()) {
+        return Err(ApiError(StatusCode::NOT_FOUND, "unknown workspace"));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]

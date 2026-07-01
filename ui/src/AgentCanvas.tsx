@@ -48,6 +48,7 @@ import {
   switchWorkspace,
   createWorkspace,
   removeWorkspace,
+  renameWorkspace,
   connectFolder,
   disconnectFolder,
   type WorkspaceEntry,
@@ -65,18 +66,22 @@ const AGENT_NAMES = [
   "phoenix", "cygnus", "hydra", "draco", "aquila", "corvus", "lupus",
 ];
 
-function pickName(existing: string[]): string {
+function pickName(existing: string[], workspaceId: string): string {
   const used = new Set(existing);
-  const available = AGENT_NAMES.filter((n) => !used.has(n));
-  const pool = available.length > 0 ? available : AGENT_NAMES;
-  return pool[Math.floor(Math.random() * pool.length)];
+  const suffix = workspaceId ? `-${workspaceId}` : "";
+  const available = AGENT_NAMES
+    .map((n) => `${n}${suffix}`)
+    .filter((n) => !used.has(n));
+  if (available.length > 0) return available[Math.floor(Math.random() * available.length)];
+  const base = AGENT_NAMES[Math.floor(Math.random() * AGENT_NAMES.length)];
+  return `${base}${suffix}-${used.size + 1}`;
 }
 
-function makeNode(preset: AgentPreset, cwd: string, x: number, y: number, existingNames: string[]): NodeModel {
+function makeNode(preset: AgentPreset, cwd: string, x: number, y: number, existingNames: string[], workspaceId: string): NodeModel {
   const n = nextId++;
   return {
     id: `node-${n}`,
-    name: pickName(existingNames),
+    name: pickName(existingNames, workspaceId),
     command: preset.command,
     preset: preset.id,
     cwd,
@@ -137,6 +142,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   const linkFromRef = useRef<string | null>(null);
   const [linkCursor, setLinkCursor] = useState<{ x: number; y: number } | null>(null);
   const [workspaceName, setWorkspaceName] = useState("Workspace");
+  const [workspaceId, setWorkspaceId] = useState("");
   const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([]);
   const [activeId, setActiveId] = useState<string>("");
   const [picker, setPicker] = useState<null | "new" | "folder" | "spawn">(null);
@@ -177,8 +183,8 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   const reload = useCallback(async () => {
     try {
       const data = await fetchSessions();
-      const parts = data.workspace.split("/").filter(Boolean);
-      setWorkspaceName(parts[parts.length - 1] || "Workspace");
+      setWorkspaceId(data.workspaceId || "");
+      setWorkspaceName(data.workspace || "Workspace");
       if (data.terminals.length > 0) {
         setNodes(
           data.terminals.map((t) => ({
@@ -262,8 +268,9 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
 
   async function handleSwitch(id: string) {
     if (id === activeId) return;
-    await switchWorkspace(id);
     setActiveId(id);
+    reconciledRef.current = false;
+    await switchWorkspace(id);
     await reload();
     await loadWorkspaces();
     // New workspace layout is loaded — restore its orphaned tmux sessions too.
@@ -273,7 +280,9 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   const activeFolders = workspaces.find((w) => w.id === activeId)?.folders ?? [];
 
   async function handleNewWorkspace(dir: string) {
-    await createWorkspace(dir);
+    const created = await createWorkspace(dir);
+    setActiveId(created.id);
+    reconciledRef.current = false;
     setPicker(null);
     await reload();
     await loadWorkspaces();
@@ -286,11 +295,21 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
     if (id === activeId) {
       const next = workspaces.find((w) => w.id !== id);
       if (next) {
-        await switchWorkspace(next.id);
         setActiveId(next.id);
+        reconciledRef.current = false;
+        await switchWorkspace(next.id);
         await reload();
       }
     }
+    await loadWorkspaces();
+  }
+
+  async function handleRenameWorkspace(id: string) {
+    const current = workspaces.find((w) => w.id === id);
+    const next = window.prompt("Rename workspace", current?.name ?? workspaceName)?.trim();
+    if (!next || next === current?.name) return;
+    await renameWorkspace(id, next);
+    if (id === activeId) setWorkspaceName(next);
     await loadWorkspaces();
   }
 
@@ -373,12 +392,12 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   }, [status, pendingEdges]);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !workspaceId || workspaceId !== activeId) return;
     const t = setTimeout(() => {
       saveSessions({ terminals: nodes, widgets, edges, widgetEdges, view }).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [nodes, widgets, edges, widgetEdges, view, loaded]);
+  }, [nodes, widgets, edges, widgetEdges, view, loaded, workspaceId, activeId]);
 
   const moveNode = useCallback((id: string, x: number, y: number) => {
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, x, y } : n)));
@@ -410,7 +429,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
     void ensureFolder(dir);
     setNodes((ns) => {
       const { x, y } = nextCanvasPosition(allRects(ns, widgets), DEFAULT_TERM_WIDTH, DEFAULT_TERM_HEIGHT);
-      const node = makeNode(preset, dir, x, y, ns.map((n) => n.name));
+      const node = makeNode(preset, dir, x, y, ns.map((n) => n.name), workspaceId);
       setSelectedId(node.id);
       return [...ns, node];
     });
@@ -717,7 +736,23 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   }
 
   function zoomBy(delta: number) {
-    setView((v) => ({ ...v, zoom: clamp(v.zoom + delta, 0.35, 1.75) }));
+    const rect = viewportRef.current?.getBoundingClientRect();
+    if (!rect) {
+      setView((v) => ({ ...v, zoom: clamp(v.zoom + delta, 0.35, 1.75) }));
+      return;
+    }
+    const mx = rect.width / 2;
+    const my = rect.height / 2;
+    setView((v) => {
+      const worldX = (mx - v.x) / v.zoom;
+      const worldY = (my - v.y) / v.zoom;
+      const zoom = clamp(v.zoom + delta, 0.35, 1.75);
+      return {
+        zoom,
+        x: mx - worldX * zoom,
+        y: my - worldY * zoom,
+      };
+    });
   }
 
   function portFor(node: NodeModel, side: "in" | "out") {
@@ -770,6 +805,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
           activeId={activeId}
           onSwitchWorkspace={handleSwitch}
           onDeleteWorkspace={handleDeleteWorkspace}
+          onRenameWorkspace={handleRenameWorkspace}
           onNewWorkspace={() => setPicker("new")}
         />
         {picker === "new" && (
@@ -789,6 +825,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
         {picker === "spawn" && pendingPresetId && (
           <DirectoryPicker
             title="Pick a folder to open"
+            initialPath={activeFolders[0]}
             onCancel={() => { setPicker(null); setPendingPresetId(null); }}
             onConfirm={(dir) => { addTerminal(presetById(pendingPresetId), dir); setPicker(null); setPendingPresetId(null); }}
           />
