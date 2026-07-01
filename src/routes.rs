@@ -209,6 +209,7 @@ async fn get_sessions(State(state): State<AppState>) -> Json<serde_json::Value> 
         "workspace": name,
         "terminals": snap.terminals,
         "widgets": snap.widgets,
+        "groups": snap.groups,
         "edges": snap.edges,
         "widgetEdges": snap.widget_edges,
         "view": snap.view,

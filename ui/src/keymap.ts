@@ -44,6 +44,46 @@ export function resolvePrefixCommand(key: string): PaneCommand | null {
   }
 }
 
+// Alt+<key> shortcuts — no prefix needed, Chrome/tmux-style direct chords.
+// Returns null when the key/modifier combo is not bound.
+export function resolveAltCommand(e: {
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  key: string;
+}): PaneCommand | null {
+  if (!e.altKey || e.ctrlKey || e.metaKey) return null;
+  switch (e.key.toLowerCase()) {
+    case "w":
+      return { kind: "close" };
+    case "t":
+      return { kind: "new" };
+    case "z":
+      return { kind: "zoom" };
+    case "n":
+      return { kind: "cycle", dir: 1 };
+    case "p":
+      return { kind: "cycle", dir: -1 };
+    case "tab":
+      return { kind: "cycle", dir: e.shiftKey ? -1 : 1 };
+    case "arrowright":
+      return { kind: "nav", dx: 1, dy: 0 };
+    case "arrowleft":
+      return { kind: "nav", dx: -1, dy: 0 };
+    case "arrowup":
+      return { kind: "nav", dx: 0, dy: -1 };
+    case "arrowdown":
+      return { kind: "nav", dx: 0, dy: 1 };
+    case "escape":
+      return { kind: "cancel" };
+    default:
+      if (e.key >= "1" && e.key <= "9") return { kind: "jump", index: Number(e.key) - 1 };
+      if (e.key === "0") return { kind: "jump", index: 9 };
+      return null;
+  }
+}
+
 // True for modifier-only keydowns — these must not consume the pending prefix.
 export function isModifierKey(key: string): boolean {
   return key === "Control" || key === "Shift" || key === "Alt" || key === "Meta";

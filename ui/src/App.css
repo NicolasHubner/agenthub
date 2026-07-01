@@ -366,15 +366,20 @@ body {
 }
 .canvas-dock {
   position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
-  z-index: 12; display: flex; align-items: center; gap: 4px;
+  z-index: 12; display: flex; align-items: flex-start; gap: 4px;
   padding: 6px 8px; background: var(--dock-bg);
   border: 1px solid var(--dock-border); border-radius: 14px;
   box-shadow: 0 8px 32px var(--dock-shadow), 0 2px 8px var(--dock-shadow-sm);
   backdrop-filter: blur(8px);
 }
+.canvas-dock-col { display: flex; flex-direction: column; gap: 2px; }
+.dock-group-label {
+  font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-muted); padding: 0 2px; line-height: 1.2;
+}
 .canvas-dock-group { display: flex; gap: 2px; }
 .canvas-dock-group.agents { gap: 4px; }
-.dock-sep { width: 1px; height: 24px; background: var(--dock-sep); margin: 0 4px; }
+.dock-sep { align-self: stretch; width: 1px; background: var(--dock-sep); margin: 16px 4px 0; }
 .dock-btn {
   width: 36px; height: 36px; border: none; border-radius: 10px;
   background: transparent; cursor: pointer; display: grid; place-items: center;
@@ -427,6 +432,40 @@ body {
 }
 .widget-sticky .widget-editor { font-size: 14px; }
 
+/* ── Group box (Excalidraw-style frame) ── */
+.canvas-group {
+  position: absolute; z-index: 3; pointer-events: none;
+  border: 2px solid #7c5cff; border-radius: 10px;
+  display: flex; flex-direction: column;
+}
+.canvas-group.selected { outline: 2px solid #3b82f6; outline-offset: 2px; }
+.group-header {
+  position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  background: var(--canvas-bg); border: 1px solid;
+  border-radius: 999px; padding: 6px 16px;
+  cursor: grab; user-select: none; max-width: 80%;
+  pointer-events: auto;
+}
+.group-header:active { cursor: grabbing; }
+.group-title-input {
+  border: none; background: transparent; outline: none;
+  font: inherit; font-size: 16px; font-weight: 600; color: var(--text-primary);
+  width: 180px;
+}
+.group-swatches { display: flex; gap: 5px; }
+.group-swatch {
+  width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(0,0,0,.15);
+  cursor: pointer; padding: 0;
+}
+.group-swatch.active { outline: 2px solid #111; outline-offset: 1px; }
+.canvas-group-preview {
+  position: absolute; z-index: 1;
+  border: 2px dashed #7c5cff; border-radius: 10px;
+  background: color-mix(in srgb, #7c5cff 8%, transparent);
+  pointer-events: none;
+}
+
 .workspace-tools { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
 .agent-chip {
   display: inline-flex; align-items: center; gap: 6px;
@@ -462,6 +501,14 @@ body {
   position: absolute; top: 0; left: 0;
   transform-origin: 0 0;
   width: 8000px; height: 8000px;
+  will-change: transform;
+}
+/* Promote heavy children to their own GPU layers while panning so the
+   browser re-composites instead of repainting them every frame. */
+.canvas-viewport.panning .terminal-node,
+.canvas-viewport.panning .canvas-widget,
+.canvas-viewport.panning .canvas-group {
+  will-change: transform;
 }
 
 .canvas-hint {
@@ -608,6 +655,7 @@ body {
   cursor: nwse-resize; z-index: 5; opacity: .45;
   background: linear-gradient(135deg, transparent 45%, #9ca3af 45%);
   border-radius: 0 0 10px 0;
+  pointer-events: auto;
 }
 .resize-handle:hover { opacity: .9; }
 

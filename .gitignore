@@ -1,4 +1,7 @@
 /target
+/src-tauri/target
+/src-tauri/gen
+/src-tauri/resources/agenthub
 /ui/node_modules
 /ui/dist
 /.agenthub

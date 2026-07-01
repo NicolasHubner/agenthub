@@ -4,17 +4,20 @@ import {
   clamp,
   nextCanvasPosition,
   portPosition,
+  rectContains,
   screenToCanvas,
   type CanvasView,
   type Rect,
 } from "./canvasMath";
 import { CanvasToolbar, type CanvasTool } from "./CanvasToolbar";
 import { CanvasWidget } from "./CanvasWidget";
+import { GroupBox } from "./GroupBox";
 import {
   cycleSelection,
   isModifierKey,
   isPrefixChord,
   jumpSelection,
+  resolveAltCommand,
   resolvePrefixCommand,
   spatialNavigate,
   type Box,
@@ -33,12 +36,14 @@ import {
   DEFAULT_TERM_WIDTH,
   DEFAULT_VIEW,
   fetchSessions,
+  GROUP_COLORS,
   listTmuxSessions,
   presetById,
   saveSessions,
   WIDGET_DEFAULTS,
   type AgentPreset,
   type CanvasWidget as WidgetModel,
+  type GroupBox as GroupBoxModel,
   type WidgetKind,
 } from "./sessions";
 import { buildCanvasItems, WorkspaceSidebar } from "./WorkspaceSidebar";
@@ -58,6 +63,7 @@ import { ThemeToggle } from "./ThemeToggle";
 
 let nextId = 1;
 let nextWidgetId = 1;
+let nextGroupId = 1;
 
 const AGENT_NAMES = [
   "alpha", "bravo", "tango", "delta", "echo", "foxtrot", "golf", "hotel",
@@ -107,10 +113,24 @@ function makeWidget(kind: WidgetKind, x: number, y: number): WidgetModel {
   };
 }
 
-function allRects(nodes: NodeModel[], widgets: WidgetModel[]): Rect[] {
+function makeGroup(x: number, y: number, width: number, height: number): GroupBoxModel {
+  const n = nextGroupId++;
+  return {
+    id: `group-${n}`,
+    title: "",
+    x,
+    y,
+    width,
+    height,
+    color: GROUP_COLORS[0],
+  };
+}
+
+function allRects(nodes: NodeModel[], widgets: WidgetModel[], groups: GroupBoxModel[] = []): Rect[] {
   return [
     ...nodes.map((n) => ({ x: n.x, y: n.y, width: n.width, height: n.height })),
     ...widgets.map((w) => ({ x: w.x, y: w.y, width: w.width, height: w.height })),
+    ...groups.map((g) => ({ x: g.x, y: g.y, width: g.width, height: g.height })),
   ];
 }
 
@@ -123,8 +143,10 @@ interface AgentCanvasProps {
 export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasProps) {
   const hubRef = useRef<HubConnection | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const canvasWorldRef = useRef<HTMLDivElement>(null);
   const [nodes, setNodes] = useState<NodeModel[]>([]);
   const [widgets, setWidgets] = useState<WidgetModel[]>([]);
+  const [groups, setGroups] = useState<GroupBoxModel[]>([]);
   const [edges, setEdges] = useState<[string, string][]>([]);
   const [widgetEdges, setWidgetEdges] = useState<[string, string][]>([]);
   const nodesRef = useRef<NodeModel[]>([]);
@@ -133,6 +155,8 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   widgetsRef.current = widgets;
   const widgetEdgesRef = useRef<[string, string][]>([]);
   widgetEdgesRef.current = widgetEdges;
+  const drawRef = useRef<{ sx: number; sy: number } | null>(null);
+  const drawRectRef = useRef<Rect | null>(null);
   const [subagents, setSubagents] = useState<SubagentSnapshot[]>([]);
   const [pendingEdges, setPendingEdges] = useState<[string, string][]>([]);
   const savedEdgesRef = useRef<[string, string][]>([]);
@@ -148,9 +172,11 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   const [picker, setPicker] = useState<null | "new" | "folder" | "spawn">(null);
   const [pendingPresetId, setPendingPresetId] = useState<string | null>(null);
   const [view, setView] = useState<CanvasView>(DEFAULT_VIEW);
+  const flushSaveRef = useRef<() => Promise<void>>(async () => {});
   const [loaded, setLoaded] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
+  const [drawRect, setDrawRect] = useState<Rect | null>(null);
   const [activeTool, setActiveTool] = useState<CanvasTool>("select");
   const [folders, setFolders] = useState<FolderFiles[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -159,7 +185,8 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   const [prefixActive, setPrefixActive] = useState(false);
   const prefixActiveRef = useRef(false);
   const prefixTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const panRef = useRef<{ sx: number; sy: number; vx: number; vy: number } | null>(null);
+  const panRef = useRef<{ sx: number; sy: number; vx: number; vy: number; nx: number; ny: number } | null>(null);
+  const groupMembersRef = useRef<Record<string, { nodeIds: string[]; widgetIds: string[] }>>({});
   const viewRef = useRef(view);
   viewRef.current = view;
 
@@ -210,6 +237,16 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
       } else {
         setWidgets([]);
       }
+      if (data.groups?.length) {
+        setGroups(data.groups);
+        const maxG = data.groups.reduce((m, g) => {
+          const n = parseInt(g.id.replace(/\D/g, ""), 10);
+          return Number.isFinite(n) ? Math.max(m, n) : m;
+        }, 0);
+        nextGroupId = maxG + 1;
+      } else {
+        setGroups([]);
+      }
       if (data.edges) { setPendingEdges(data.edges); savedEdgesRef.current = data.edges; }
       else { setPendingEdges([]); savedEdgesRef.current = []; }
       if (data.widgetEdges?.length) setWidgetEdges(data.widgetEdges);
@@ -238,7 +275,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
       const bash = presetById("bash");
       const acc = [...ns];
       for (const s of orphans) {
-        const { x, y } = nextCanvasPosition(allRects(acc, widgets), DEFAULT_TERM_WIDTH, DEFAULT_TERM_HEIGHT);
+        const { x, y } = nextCanvasPosition(allRects(acc, widgets, groups), DEFAULT_TERM_WIDTH, DEFAULT_TERM_HEIGHT);
         const node: NodeModel = {
           id: `node-${nextId++}`,
           name: s.name,
@@ -254,7 +291,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
       }
       return acc;
     });
-  }, [widgets]);
+  }, [widgets, groups]);
 
   useEffect(() => { void reload(); void loadWorkspaces(); }, [reload, loadWorkspaces]);
 
@@ -268,6 +305,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
 
   async function handleSwitch(id: string) {
     if (id === activeId) return;
+    await flushPendingSave();
     setActiveId(id);
     reconciledRef.current = false;
     await switchWorkspace(id);
@@ -280,6 +318,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   const activeFolders = workspaces.find((w) => w.id === activeId)?.folders ?? [];
 
   async function handleNewWorkspace(dir: string) {
+    await flushPendingSave();
     const created = await createWorkspace(dir);
     setActiveId(created.id);
     reconciledRef.current = false;
@@ -291,6 +330,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   async function handleDeleteWorkspace(id: string) {
     if (workspaces.length <= 1) return;
     if (!window.confirm("Delete this workspace?")) return;
+    if (id === activeId) await flushPendingSave();
     await removeWorkspace(id);
     if (id === activeId) {
       const next = workspaces.find((w) => w.id !== id);
@@ -393,11 +433,20 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
 
   useEffect(() => {
     if (!loaded || !workspaceId || workspaceId !== activeId) return;
-    const t = setTimeout(() => {
-      saveSessions({ terminals: nodes, widgets, edges, widgetEdges, view }).catch(() => {});
-    }, 400);
+    const save = () => saveSessions({ terminals: nodes, widgets, groups, edges, widgetEdges, view }).catch(() => {});
+    flushSaveRef.current = save;
+    const t = setTimeout(save, 400);
     return () => clearTimeout(t);
-  }, [nodes, widgets, edges, widgetEdges, view, loaded, workspaceId, activeId]);
+  }, [nodes, widgets, groups, edges, widgetEdges, view, loaded, workspaceId, activeId]);
+
+  // Deletions (e.g. removeNode) only update local state; the debounced save above
+  // is what actually persists them and lets the backend kill the tmux session for
+  // anything removed. Switching workspaces right after a delete can cancel that
+  // pending save (deps change), leaving the tmux session orphaned forever and
+  // making it reappear via reconcileTmux. Flush synchronously before switching.
+  async function flushPendingSave() {
+    await flushSaveRef.current();
+  }
 
   const moveNode = useCallback((id: string, x: number, y: number) => {
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, x, y } : n)));
@@ -415,6 +464,62 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
     setWidgets((ws) => ws.map((w) => (w.id === id ? { ...w, width, height } : w)));
   }, []);
 
+  const onGroupDragStart = useCallback(
+    (id: string) => {
+      const group = groups.find((g) => g.id === id);
+      if (!group) return;
+      const box: Rect = { x: group.x, y: group.y, width: group.width, height: group.height };
+      const nodeIds = nodes
+        .filter((n) => rectContains(box, { x: n.x, y: n.y, width: n.width, height: n.height }))
+        .map((n) => n.id);
+      const widgetIds = widgets
+        .filter((w) => rectContains(box, { x: w.x, y: w.y, width: w.width, height: w.height }))
+        .map((w) => w.id);
+      groupMembersRef.current[id] = { nodeIds, widgetIds };
+    },
+    [groups, nodes, widgets],
+  );
+
+  const moveGroup = useCallback((id: string, x: number, y: number) => {
+    setGroups((gs) => {
+      const g = gs.find((item) => item.id === id);
+      if (!g) return gs;
+      const dx = x - g.x;
+      const dy = y - g.y;
+      const members = groupMembersRef.current[id];
+      if (members) {
+        if (members.nodeIds.length > 0) {
+          setNodes((ns) =>
+            ns.map((n) => (members.nodeIds.includes(n.id) ? { ...n, x: n.x + dx, y: n.y + dy } : n)),
+          );
+        }
+        if (members.widgetIds.length > 0) {
+          setWidgets((ws) =>
+            ws.map((w) => (members.widgetIds.includes(w.id) ? { ...w, x: w.x + dx, y: w.y + dy } : w)),
+          );
+        }
+      }
+      return gs.map((g2) => (g2.id === id ? { ...g2, x, y } : g2));
+    });
+  }, []);
+
+  const resizeGroup = useCallback((id: string, width: number, height: number) => {
+    setGroups((gs) => gs.map((g) => (g.id === id ? { ...g, width, height } : g)));
+  }, []);
+
+  const updateGroup = useCallback(
+    (id: string, patch: Partial<Pick<GroupBoxModel, "title" | "color">>) => {
+      setGroups((gs) => gs.map((g) => (g.id === id ? { ...g, ...patch } : g)));
+    },
+    [],
+  );
+
+  function removeGroup(id: string) {
+    setGroups((gs) => gs.filter((g) => g.id !== id));
+    delete groupMembersRef.current[id];
+    if (selectedId === id) setSelectedId(null);
+  }
+
   const updateWidget = useCallback(
     (id: string, patch: Partial<Pick<WidgetModel, "title" | "content">>) => {
       setWidgets((ws) => ws.map((w) => (w.id === id ? { ...w, ...patch } : w)));
@@ -428,7 +533,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
     const dir = cwd ?? spawnCwd;
     void ensureFolder(dir);
     setNodes((ns) => {
-      const { x, y } = nextCanvasPosition(allRects(ns, widgets), DEFAULT_TERM_WIDTH, DEFAULT_TERM_HEIGHT);
+      const { x, y } = nextCanvasPosition(allRects(ns, widgets, groups), DEFAULT_TERM_WIDTH, DEFAULT_TERM_HEIGHT);
       const node = makeNode(preset, dir, x, y, ns.map((n) => n.name), workspaceId);
       setSelectedId(node.id);
       return [...ns, node];
@@ -439,7 +544,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   function addWidget(kind: WidgetKind, at?: { x: number; y: number }) {
     const d = WIDGET_DEFAULTS[kind];
     setWidgets((ws) => {
-      const pos = at ?? nextCanvasPosition(allRects(nodes, ws), d.width, d.height);
+      const pos = at ?? nextCanvasPosition(allRects(nodes, ws, groups), d.width, d.height);
       const w = makeWidget(kind, pos.x, pos.y);
       setSelectedId(w.id);
       return [...ws, w];
@@ -661,6 +766,13 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
       prefixTimer.current = setTimeout(clearPrefix, 2500);
     }
     function onKeyDownCapture(e: KeyboardEvent) {
+      const altCmd = resolveAltCommand(e);
+      if (altCmd) {
+        e.preventDefault();
+        e.stopPropagation();
+        actionsRef.current(altCmd);
+        return;
+      }
       if (prefixActiveRef.current) {
         if (isModifierKey(e.key)) return; // wait for a real command key
         e.preventDefault();
@@ -709,30 +821,67 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
         sy: e.clientY,
         vx: viewRef.current.x,
         vy: viewRef.current.y,
+        nx: viewRef.current.x,
+        ny: viewRef.current.y,
       };
       setPanning(true);
       return;
     }
 
     if (e.button !== 0 || activeTool === "select") return;
-    if ((e.target as HTMLElement).closest(".terminal-node, .canvas-widget")) return;
+    if ((e.target as HTMLElement).closest(".terminal-node, .canvas-widget, .canvas-group")) return;
     const pos = toCanvas(e.clientX, e.clientY);
+    if (activeTool === "group") {
+      drawRef.current = { sx: pos.x, sy: pos.y };
+      drawRectRef.current = { x: pos.x, y: pos.y, width: 0, height: 0 };
+      setDrawRect(drawRectRef.current);
+      return;
+    }
     addWidget(activeTool as WidgetKind, pos);
   }
 
   function onViewportMouseMove(e: React.MouseEvent) {
     const pan = panRef.current;
-    if (!pan) return;
-    setView((v) => ({
-      ...v,
-      x: pan.vx + (e.clientX - pan.sx),
-      y: pan.vy + (e.clientY - pan.sy),
-    }));
+    if (pan) {
+      pan.nx = pan.vx + (e.clientX - pan.sx);
+      pan.ny = pan.vy + (e.clientY - pan.sy);
+      const world = canvasWorldRef.current;
+      if (world) world.style.transform = `translate(${pan.nx}px, ${pan.ny}px) scale(${viewRef.current.zoom})`;
+      return;
+    }
+    if (drawRef.current) {
+      const pos = toCanvas(e.clientX, e.clientY);
+      const { sx, sy } = drawRef.current;
+      const next = {
+        x: Math.min(sx, pos.x),
+        y: Math.min(sy, pos.y),
+        width: Math.abs(pos.x - sx),
+        height: Math.abs(pos.y - sy),
+      };
+      drawRectRef.current = next;
+      setDrawRect(next);
+    }
   }
 
   function onViewportMouseUp() {
+    const pan = panRef.current;
+    if (pan && (pan.nx !== pan.vx || pan.ny !== pan.vy)) {
+      setView((v) => ({ ...v, x: pan.nx, y: pan.ny }));
+    }
     panRef.current = null;
     setPanning(false);
+    if (drawRef.current) {
+      drawRef.current = null;
+      const rect = drawRectRef.current;
+      if (rect && rect.width > 24 && rect.height > 24) {
+        const group = makeGroup(rect.x, rect.y, rect.width, rect.height);
+        setGroups((gs) => [...gs, group]);
+        setSelectedId(group.id);
+      }
+      drawRectRef.current = null;
+      setDrawRect(null);
+      setActiveTool("select");
+    }
   }
 
   function zoomBy(delta: number) {
@@ -855,6 +1004,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
             onMouseLeave={onViewportMouseUp}
           >
             <div
+              ref={canvasWorldRef}
               className="canvas-world"
               style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}
             >
@@ -865,6 +1015,13 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
                     Space+drag pan · Alt+scroll zoom · pick a tool then click canvas
                   </p>
                 </div>
+              )}
+
+              {drawRect && (
+                <div
+                  className="canvas-group-preview"
+                  style={{ left: drawRect.x, top: drawRect.y, width: drawRect.width, height: drawRect.height }}
+                />
               )}
 
               <svg className="edge-layer" width="8000" height="8000">
@@ -920,6 +1077,23 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
                   />
                 )}
               </svg>
+
+              {groups.map((group) => (
+                <GroupBox
+                  key={group.id}
+                  group={group}
+                  selected={selectedId === group.id}
+                  zoom={view.zoom}
+                  spaceHeld={spaceHeld}
+                  screenToCanvas={toCanvas}
+                  onDragStart={onGroupDragStart}
+                  onMove={moveGroup}
+                  onResize={resizeGroup}
+                  onRemove={removeGroup}
+                  onUpdate={updateGroup}
+                  onSelect={setSelectedId}
+                />
+              ))}
 
               {widgets.map((widget) => (
                 <CanvasWidget

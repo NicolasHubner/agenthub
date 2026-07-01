@@ -37,12 +37,25 @@ pub struct CanvasWidget {
     pub height: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GroupBox {
+    pub id: String,
+    pub title: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionSnapshot {
     #[serde(default)]
     pub terminals: Vec<TerminalSession>,
     #[serde(default)]
     pub widgets: Vec<CanvasWidget>,
+    #[serde(default)]
+    pub groups: Vec<GroupBox>,
     #[serde(default)]
     pub edges: Vec<[String; 2]>,
     #[serde(default, rename = "widgetEdges")]
@@ -105,5 +118,27 @@ mod tests {
         let store = SessionStore::new_in(&dir);
         store.save(SessionSnapshot::default()).unwrap();
         assert!(dir.join("sessions.json").exists());
+    }
+
+    #[test]
+    fn group_box_round_trips_through_json() {
+        let g = GroupBox {
+            id: "group-1".into(),
+            title: "Auth work".into(),
+            x: 10.0,
+            y: 20.0,
+            width: 300.0,
+            height: 200.0,
+            color: "#7c5cff".into(),
+        };
+        let json = serde_json::to_string(&g).unwrap();
+        let back: GroupBox = serde_json::from_str(&json).unwrap();
+        assert_eq!(g, back);
+    }
+
+    #[test]
+    fn session_snapshot_groups_defaults_empty() {
+        let snap: SessionSnapshot = serde_json::from_str("{}").unwrap();
+        assert!(snap.groups.is_empty());
     }
 }

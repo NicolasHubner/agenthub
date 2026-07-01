@@ -23,11 +23,22 @@ export type CanvasWidget = {
   height: number;
 };
 
+export type GroupBox = {
+  id: string;
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+};
+
 export type CanvasView = { x: number; y: number; zoom: number };
 
 export type SessionSnapshot = {
   terminals: TerminalSession[];
   widgets?: CanvasWidget[];
+  groups?: GroupBox[];
   edges: [string, string][];
   widgetEdges?: [string, string][];
   view?: CanvasView;
@@ -38,6 +49,8 @@ export const WIDGET_DEFAULTS: Record<WidgetKind, { width: number; height: number
   text: { width: 300, height: 100, title: "Text" },
   sticky: { width: 220, height: 200, title: "Sticky" },
 };
+
+export const GROUP_COLORS = ["#7c5cff", "#3b82f6", "#0d9488", "#f59e0b", "#ef4444", "#64748b"];
 
 export type SessionsResponse = SessionSnapshot & {
   workspaceId: string;
@@ -87,11 +100,12 @@ export const AGENT_PRESETS: AgentPreset[] = [
   { id: "codex", label: "Codex", command: "codex", badge: "Codex", color: "#7c5cff", icon: "◉" },
   { id: "cursor", label: "Cursor", command: "cursor-agent", badge: "Agent", color: "#3b82f6", icon: "⌁" },
   { id: "gemini", label: "Gemini", command: "gemini", badge: "CLI", color: "#0d9488", icon: "◇" },
+  { id: "opencode", label: "OpenCode", command: "opencode", badge: "OSS", color: "#22c55e", icon: "◆" },
   { id: "bash", label: "Shell", command: "bash", badge: "Shell", color: "#64748b", icon: "▸" },
 ];
 
 export function presetById(id: string): AgentPreset {
-  return AGENT_PRESETS.find((p) => p.id === id) ?? AGENT_PRESETS[4];
+  return AGENT_PRESETS.find((p) => p.id === id) ?? AGENT_PRESETS.find((p) => p.id === "bash")!;
 }
 
 export const DEFAULT_TERM_WIDTH = 700;
