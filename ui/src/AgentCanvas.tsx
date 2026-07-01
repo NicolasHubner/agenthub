@@ -800,14 +800,15 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
     const rect = viewportRef.current!.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    const worldX = (mx - view.x) / view.zoom;
-    const worldY = (my - view.y) / view.zoom;
-    const factor = e.deltaY > 0 ? 0.92 : 1.08;
-    const zoom = clamp(view.zoom * factor, 0.35, 1.75);
-    setView({
-      zoom,
-      x: mx - worldX * zoom,
-      y: my - worldY * zoom,
+    // Normalize delta across mouse-wheel (lines) and trackpad (pixels), then
+    // scale zoom by its magnitude so each event moves smoothly and continuously.
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? rect.height : 1;
+    const factor = Math.exp(-e.deltaY * unit * 0.0015);
+    setView((v) => {
+      const zoom = clamp(v.zoom * factor, 0.35, 1.75);
+      const worldX = (mx - v.x) / v.zoom;
+      const worldY = (my - v.y) / v.zoom;
+      return { zoom, x: mx - worldX * zoom, y: my - worldY * zoom };
     });
   }
 
