@@ -508,7 +508,7 @@ export function AgentCanvas({ onOpenFile, activeRoot, activePath }: AgentCanvasP
   }, []);
 
   const updateGroup = useCallback(
-    (id: string, patch: Partial<Pick<GroupBoxModel, "title" | "color">>) => {
+    (id: string, patch: Partial<Pick<GroupBoxModel, "title" | "color" | "titleScale">>) => {
       setGroups((gs) => gs.map((g) => (g.id === id ? { ...g, ...patch } : g)));
     },
     [],

@@ -35,13 +35,28 @@ Inspired by tools like [Maestri](https://maestri.ai), but deliberately simpler: 
 | `agenthub-connect` terminal CLI | ✅ |
 | Workspace file tree + doc viewer | ✅ |
 | Path traversal protection on file API | ✅ |
-| Installable PWA (desktop app, all OS) | ✅ |
+| Native desktop app (Tauri) + one-line installer | ✅ |
+| Installable PWA (browser → desktop, all OS) | ✅ |
+| Canvas: terminal nodes, pan/zoom-to-cursor, group boxes | ✅ |
 | tmux-style keyboard shortcuts | ✅ |
-| Drag-and-drop node graph | 🔜 |
 | MCP adapter (Claude Code) | 🔜 |
 | Terminal wrapper improvements | 🔜 |
 
-## Quick start
+## Install (desktop app)
+
+Fastest path — no toolchain needed. Debian/Ubuntu, one line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NicolasHubner/agenthub/main/install.sh | bash
+```
+
+It pulls the latest `.deb` from [Releases](https://github.com/NicolasHubner/agenthub/releases), installs `tmux` + WebKit runtime deps, and adds **AgentHub** to your app menu.
+
+On other distros (or to avoid apt), grab the portable **`.AppImage`** from the same Releases page — `chmod +x` and run it.
+
+The desktop app is built with [Tauri](https://tauri.app): a native window wrapping the React UI, with the Rust backend bundled as a sidecar (no separate server to start).
+
+## Quick start (from source)
 
 ### Prerequisites
 
@@ -90,7 +105,7 @@ On Windows you can also **double-click** `scripts\agenthub-start.cmd`.
 
 Then in the browser, click the **install icon** in the address bar (Chrome/Edge) to install AgentHub as a **desktop app (PWA)** — it opens in its own window and works on Linux, macOS, and Windows. The Rust backend must be running for terminals to work; the launcher above keeps it running.
 
-> Prefer a packaged download? Tag a release (`git tag v0.1.0 && git push --tags`) — CI builds `agenthub-linux-x64.tar.gz`, `agenthub-macos-arm64.tar.gz`, and `agenthub-windows-x64.zip`, each bundling the binary, the built UI, and the launcher.
+> Prefer a packaged download? See [Install (desktop app)](#install-desktop-app) above. Maintainers cut a release with `./release.sh [version]` — it runs `./desktop.sh` to build the Tauri bundles (`.deb` + `.AppImage`) and publishes/updates the matching GitHub Release.
 
 ### Manual: build and run the hub
 
@@ -243,6 +258,9 @@ cd ui && npm install
 npm run dev    # Vite on :5173, proxies /files and /file
 npm test
 npm run build  # → ui/dist
+
+# Desktop app bundle (needs the Tauri CLI: cargo install tauri-cli)
+./desktop.sh   # builds backend + UI, then .deb + .AppImage into src-tauri/target/release/bundle
 ```
 
 ## Roadmap
@@ -250,8 +268,10 @@ npm run build  # → ui/dist
 1. ~~Doc viewer~~ ✅
 2. ~~WebSocket hub + agent registry~~ ✅
 3. ~~UI agent panel + manual linking~~ ✅
-4. Node graph (drag-to-connect) 🔜
-5. MCP adapter for Claude Code 🔜
+4. ~~Canvas: terminal nodes, pan/zoom, group boxes~~ ✅
+5. ~~Native desktop app + one-line installer~~ ✅
+6. Node graph drag-to-connect edges 🔜
+7. MCP adapter for Claude Code 🔜
 
 **Non-goals:** remote access, authentication, durable storage, automatic orchestration, in-browser file editing.
 

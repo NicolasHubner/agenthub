@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useNodeDrag } from "./useNodeDrag";
 import { GROUP_COLORS, type GroupBox as GroupBoxModel } from "./sessions";
 
@@ -11,7 +12,7 @@ type Props = {
   onMove: (id: string, x: number, y: number) => void;
   onResize: (id: string, width: number, height: number) => void;
   onRemove: (id: string) => void;
-  onUpdate: (id: string, patch: Partial<Pick<GroupBoxModel, "title" | "color">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<GroupBoxModel, "title" | "color" | "titleScale">>) => void;
   onSelect: (id: string) => void;
 };
 
@@ -50,6 +51,29 @@ export function GroupBox({
     startDrag(e);
   }
 
+  const titleScale = group.titleScale ?? 1;
+  const scaleDrag = useRef<{ startScale: number; startX: number } | null>(null);
+
+  function onTitleResizeMouseDown(e: React.MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect(group.id);
+    scaleDrag.current = { startScale: titleScale, startX: e.clientX };
+    function onMouseMove(ev: MouseEvent) {
+      if (!scaleDrag.current) return;
+      const dx = (ev.clientX - scaleDrag.current.startX) / zoom;
+      const next = Math.min(4, Math.max(0.6, scaleDrag.current.startScale + dx / 100));
+      onUpdate(group.id, { titleScale: next });
+    }
+    function onMouseUp() {
+      scaleDrag.current = null;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
   return (
     <div
       className={`canvas-group${selected ? " selected" : ""}`}
@@ -63,13 +87,18 @@ export function GroupBox({
       }}
       onMouseDown={() => onSelect(group.id)}
     >
-      <div className="group-header" onMouseDown={onHeaderMouseDown} style={{ borderColor: group.color }}>
+      <div
+        className="group-header"
+        onMouseDown={onHeaderMouseDown}
+        style={{ borderColor: group.color, fontSize: `${16 * titleScale}px`, padding: `${6 * titleScale}px ${16 * titleScale}px`, gap: `${10 * titleScale}px` }}
+      >
         <input
           className="group-title-input"
           value={group.title}
           onChange={(e) => onUpdate(group.id, { title: e.target.value })}
           onMouseDown={(e) => e.stopPropagation()}
           placeholder="assunto"
+          style={{ fontSize: "1em", width: `${180 * titleScale}px` }}
         />
         <div className="group-swatches" onMouseDown={(e) => e.stopPropagation()}>
           {GROUP_COLORS.map((c) => (
@@ -77,7 +106,7 @@ export function GroupBox({
               key={c}
               type="button"
               className={`group-swatch${group.color === c ? " active" : ""}`}
-              style={{ background: c }}
+              style={{ background: c, width: `${18 * titleScale}px`, height: `${18 * titleScale}px` }}
               onClick={() => onUpdate(group.id, { color: c })}
               aria-label={`Color ${c}`}
             />
@@ -86,6 +115,7 @@ export function GroupBox({
         <button type="button" className="node-close" onClick={() => onRemove(group.id)}>
           ×
         </button>
+        <div className="group-title-resize" onMouseDown={onTitleResizeMouseDown} title="Arraste para redimensionar" />
       </div>
       <div className="resize-handle" onMouseDown={startResize} />
     </div>

@@ -459,6 +459,12 @@ body {
   cursor: pointer; padding: 0;
 }
 .group-swatch.active { outline: 2px solid #111; outline-offset: 1px; }
+.group-title-resize {
+  width: 10px; height: 10px; margin-left: 2px; flex: none;
+  border-right: 2px solid var(--text-secondary, #888); border-bottom: 2px solid var(--text-secondary, #888);
+  cursor: nwse-resize; opacity: .6;
+}
+.group-title-resize:hover { opacity: 1; }
 .canvas-group-preview {
   position: absolute; z-index: 1;
   border: 2px dashed #7c5cff; border-radius: 10px;

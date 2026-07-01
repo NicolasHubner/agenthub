@@ -31,6 +31,7 @@ export type GroupBox = {
   width: number;
   height: number;
   color: string;
+  titleScale?: number;
 };
 
 export type CanvasView = { x: number; y: number; zoom: number };
